@@ -106,8 +106,8 @@ app.use("/api", cors());
 app.use("/health", cors());
 app.use("/broadcast", cors());
 
-// Serve static files from the static directory
-app.use(express.static(join(__dirname, "static")));
+// Serve static files from dist/client
+app.use(express.static(join(__dirname, "../../dist/client")));
 
 // Handle API routes
 app.use(express.json());
@@ -425,7 +425,7 @@ app.get("*", (req, res) => {
   if (req.path.startsWith("/ws") || req.path.startsWith("/api")) {
     return res.status(404).json({ error: "Not found" });
   }
-  res.sendFile(join(__dirname, "static", "index.html"));
+  res.sendFile(join(__dirname, "../../dist/client/index.html"));
 });
 
 // Start price updates

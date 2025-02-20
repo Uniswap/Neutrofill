@@ -1,13 +1,11 @@
 # Dependencies
 node_modules/
-dist/
 
 # Environment variables
 .env
 
 # Build outputs
-src/server/static/
-src/client/dist/
+dist/
 
 # IDE and editor files
 .idea/

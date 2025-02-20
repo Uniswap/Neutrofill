@@ -1,4 +1,4 @@
-import { dirname, join } from "node:path";
+import { dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import react from "@vitejs/plugin-react";
 import { defineConfig } from "vite";
@@ -10,9 +10,5 @@ export default defineConfig({
   plugins: [react()],
   server: {
     port: 5173,
-  },
-  build: {
-    outDir: join(__dirname, "../server/static"),
-    emptyOutDir: true,
   },
 });

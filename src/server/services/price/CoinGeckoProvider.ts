@@ -52,7 +52,7 @@ export class CoinGeckoProvider {
       if (!response.ok) {
         let errorMessage: string;
         try {
-          const errorData = await response.json();
+          const errorData = (await response.json()) as { error?: string };
           errorMessage = errorData?.error || response.statusText;
         } catch {
           errorMessage = response.statusText;
