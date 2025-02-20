@@ -1,4 +1,5 @@
 import express from 'express';
+import cors from 'cors';
 import { config } from 'dotenv';
 import {
   type PublicClient,
@@ -189,6 +190,7 @@ const walletClients: Record<SupportedChainId, WalletClient<Transport, ViemChain>
 };
 
 app.use(express.json());
+app.use(cors()); // Enable CORS for all routes
 
 // Add validation middleware to broadcast endpoint
 app.post('/broadcast', validateBroadcastRequest, async (req, res) => {
