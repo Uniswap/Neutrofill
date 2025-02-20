@@ -18,6 +18,7 @@ import { SUPPORTED_CHAINS, CHAIN_CONFIG, type SupportedChainId } from './config/
 import { validateBroadcastRequest } from './validation/broadcast.js';
 import { derivePriorityFee, deriveClaimHash } from './utils';
 import { TheCompactService } from './services/TheCompactService';
+import { verifyBroadcastRequest } from './validation/signature.js';
 
 config();
 
@@ -198,6 +199,24 @@ app.post('/broadcast', validateBroadcastRequest, async (req, res) => {
     // Derive and log claim hash
     const claimHash = deriveClaimHash(chainId, request.compact);
     logger.info(`Processing fill request for chainId ${chainId}, claimHash: ${claimHash}`);
+
+    // Verify signatures and check registration status
+    request.claimHash = claimHash;
+    const { isValid, isOnchainRegistration } = await verifyBroadcastRequest(
+      request,
+      theCompactService
+    );
+    if (!isValid) {
+      return res.status(401).json({
+        error: 'Invalid signatures',
+        message: 'Failed to verify sponsor and/or allocator signatures',
+      });
+    }
+
+    // Log registration status
+    logger.info(
+      `Signature verification successful, registration status: ${isOnchainRegistration ? 'onchain' : 'offchain'}`
+    );
 
     if (!SUPPORTED_CHAINS.includes(chainId)) {
       return res.status(400).json({ error: `Unsupported chain ID: ${chainId}` });
