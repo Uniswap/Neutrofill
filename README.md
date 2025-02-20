@@ -9,26 +9,77 @@ Neutrofill is an automated filler bot that processes inbound transaction request
 - Profitability analysis before transaction submission
 - Support for multiple chains (Ethereum, Optimism, Base)
 - Configurable gas price multiplier for profitability calculations
+- WebSocket support for real-time transaction status updates
 
-## Setup
+## Getting Started
 
-1. Clone the repository
+### Prerequisites
+
+- Node.js 18+
+- npm 9+
+
+### Installation
+
+1. Clone the repository:
+   ```bash
+   git clone https://github.com/Uniswap/Neutrofill.git
+   cd Neutrofill
+   ```
+
 2. Install dependencies:
    ```bash
    npm install
    ```
-3. Copy `.env.example` to `.env` and fill in your configuration:
+
+3. Set up Git hooks:
+   ```bash
+   npx husky init
+   ```
+
+4. Copy `.env.example` to `.env` and configure your environment:
    ```bash
    cp .env.example .env
    ```
-4. Build the TypeScript code:
-   ```bash
-   npm run build
-   ```
-5. Start the server:
-   ```bash
-   npm start
-   ```
+
+### Development
+
+- Start the development server with hot reload:
+  ```bash
+  npm run dev
+  ```
+
+- Run type checking:
+  ```bash
+  npm run typecheck
+  ```
+
+- Run the test suite:
+  ```bash
+  npm test
+  ```
+
+- Format and lint code:
+  ```bash
+  npm run fix
+  ```
+
+### Building
+
+Build both server and client:
+```bash
+npm run build
+```
+
+This will:
+- Compile TypeScript server code to `dist/server/`
+- Build React client to `dist/client/`
+
+### Production
+
+Start the production server:
+```bash
+npm start
+```
 
 ## Configuration
 
@@ -39,72 +90,165 @@ The following environment variables are required:
 - `RPC_URL_MAINNET`: Ethereum mainnet RPC URL
 - `RPC_URL_OPTIMISM`: Optimism RPC URL
 - `RPC_URL_BASE`: Base RPC URL
-- `COINGECKO_API_KEY`: CoinGecko API key (optional, uses free tier if not provided)
+- `RPC_URL_UNICHAIN`: Unichain RPC URL
+- `COINGECKO_API_KEY`: CoinGecko API key
 - `GAS_PRICE_MULTIPLIER`: Multiplier for gas price calculations (default: 1.1)
+
+## Supported Networks
+
+- Mainnet (Chain ID: 1)
+- Optimism (Chain ID: 10)
+- Base (Chain ID: 8453)
+- Unichain (Chain ID: 130)
 
 ## API Endpoints
 
-### POST /broadcast
+### POST /api/broadcast
 
 Submit a transaction for potential execution.
 
 Request body:
-```json
+```typescript
 {
-    "chainId": "1",
-    "compact": {
-        "arbiter": "0x1234567890123456789012345678901234567890",
-        "sponsor": "0x1234567890123456789012345678901234567890",
-        "nonce": "0x1234567890123456789012345678901234567890123456789012345678901234",
-        "expires": "1000000",
-        "id": "23499701752147396106288076033874150844871292959348239827687418423535067463557",
-        "amount": "1000000000000000000",
-        "mandate": {
-            "chainId": 1,
-            "tribunal": "0x1234567890123456789012345678901234567890",
-            "recipient": "0x1234567890123456789012345678901234567890",
-            "expires": "1000000",
-            "token": "0x1234567890123456789012345678901234567890",
-            "minimumAmount": "1000000000000000000",
-            "baselinePriorityFee": "1000000000",
-            "scalingFactor": "1000000000",
-            "salt": "0x1234567890123456789012345678901234567890123456789012345678901234"
-        }
-    },
-    "sponsorSignature": null,
-    "allocatorSignature": "0x1234567890123456789012345678901234567890123456789012345678901234123456789012345678901234567890123456789012345678901234567890123456",
-    "context": {
-        "dispensation": "1000000000000000000",
-        "dispensationUSD": "$1000.00",
-        "spotOutputAmount": "1000000000000000000",
-        "quoteOutputAmountDirect": "1000000000000000000",
-        "quoteOutputAmountNet": "1000000000000000000",
-        "witnessTypeString": "witness",
-        "witnessHash": "0x1234567890123456789012345678901234567890123456789012345678901234"
-    }
+  chainId: string;          // Chain ID where the transaction should be executed
+  compact: {
+    to: string;            // Target contract address
+    amount: string;        // Amount in wei
+    data: string;         // Transaction data
+  };
+  sponsorSignature?: string;    // Optional sponsor signature
+  allocatorSignature?: string;  // Optional allocator signature
 }
 ```
+
+### GET /api/health
+
+Check server health status.
 
 Response:
-```json
+```typescript
 {
-    "success": true,
-    "transactionHash": "0x...",
-    "details": {
-        "dispensationUSD": 1000.00,
-        "gasCostUSD": 1.23,
-        "netProfitUSD": 998.77,
-        "minProfitUSD": 0.5
-    }
+  status: "ok",
+  timestamp: number  // Unix timestamp in seconds
 }
 ```
 
-## Development
+### WebSocket Connection
 
-For local development:
-```bash
-npm run dev
+Connect to `/ws` for real-time transaction status updates. Note: WebSocket endpoint does not support CORS - connections must originate from the same origin.
+
+Message Types:
+
+1. Connection Status (Server -> Client):
+```typescript
+{
+  type: "connection",
+  status: "connected" | "disconnected",
+  timestamp: string  // ISO timestamp
+}
 ```
+
+2. Heartbeat (Bidirectional):
+```typescript
+{
+  type: "ping" | "pong",
+  timestamp: string  // ISO timestamp
+}
+```
+
+3. Fill Request Status (Server -> Client):
+```typescript
+{
+  type: "fillRequest",
+  success: boolean,
+  request: {
+    chainId: string,
+    compact: {
+      arbiter: string,
+      sponsor: string,
+      nonce: string,
+      expires: string,
+      id: string,
+      amount: string,
+      mandate: {
+        chainId: number,
+        tribunal: string,
+        recipient: string,
+        expires: string,
+        token: string,
+        minimumAmount: string,
+        baselinePriorityFee: string,
+        scalingFactor: string,
+        salt: string
+      }
+    },
+    sponsorSignature: string | null,
+    allocatorSignature: string,
+    context: {
+      dispensation: string,
+      dispensationUSD: string,
+      spotOutputAmount: string,
+      quoteOutputAmountDirect: string,
+      quoteOutputAmountNet: string,
+      deltaAmount?: string,
+      slippageBips?: number,
+      witnessTypeString: string,
+      witnessHash: string,
+      claimHash?: string
+    }
+  },
+  error?: string,  // Present only if success is false
+  transactionHash?: string,  // Present only if success is true
+  details?: {  // Present only if success is true
+    dispensationUSD: number,
+    gasCostUSD: number,
+    netProfitUSD: number,
+    minProfitUSD: number
+  }
+}
+```
+
+4. Price Update (Server -> Client):
+```typescript
+{
+  type: "priceUpdate",
+  chainId: string,
+  token: string,
+  price: string,  // Price in USD
+  timestamp: string  // ISO timestamp
+}
+```
+
+5. Account Update (Server -> Client):
+```typescript
+{
+  type: "account_update",
+  account: string,
+  chainId: number,
+  balances: {
+    [tokenAddress: string]: string  // Token balances in wei
+  },
+  timestamp: string  // ISO timestamp
+}
+```
+
+6. Error (Server -> Client):
+```typescript
+{
+  type: "error",
+  code: string,
+  message: string,
+  timestamp: string  // ISO timestamp
+}
+```
+
+## Code Quality
+
+- TypeScript for type safety
+- Biome for linting and formatting
+- Jest for testing
+- Husky for Git hooks
+- lint-staged for pre-commit checks
 
 ## License
 
