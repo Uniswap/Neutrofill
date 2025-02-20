@@ -434,6 +434,14 @@ app.post('/broadcast', validateBroadcastRequest, async (req, res) => {
   }
 });
 
+// Health check endpoint
+app.get('/health', (_req, res) => {
+  res.json({
+    status: 'ok',
+    timestamp: Math.floor(Date.now() / 1000),
+  });
+});
+
 const port = process.env.PORT || 3000;
 app.listen(port, () => {
   logger.info(`Server running on port ${port}`);
