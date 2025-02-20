@@ -1,11 +1,6 @@
 import express from 'express';
 import { config } from 'dotenv';
 import {
-  createPublicClient,
-  createWalletClient,
-  http,
-  parseEther,
-  formatEther,
   type PublicClient,
   type WalletClient,
   type Chain as ViemChain,
@@ -15,11 +10,13 @@ import {
 } from 'viem';
 import { mainnet, optimism, base } from 'viem/chains';
 import { privateKeyToAccount } from 'viem/accounts';
+import { createPublicClient, createWalletClient, http, formatEther, parseEther } from 'viem';
 import { PriceService } from './services/price/PriceService.js';
 import { Logger } from './utils/logger.js';
 import { BroadcastRequest } from './types/broadcast.js';
 import { SUPPORTED_CHAINS, CHAIN_CONFIG, type SupportedChainId } from './config/constants.js';
 import { validateBroadcastRequest } from './validation/broadcast.js';
+import { derivePriorityFee, deriveClaimHash } from './utils';
 
 config();
 
@@ -131,6 +128,10 @@ app.post('/broadcast', validateBroadcastRequest, async (req, res) => {
     const request = req.body as BroadcastRequest;
     const chainId = parseInt(request.chainId) as SupportedChainId;
 
+    // Derive and log claim hash
+    const claimHash = deriveClaimHash(chainId, request.compact);
+    logger.info(`Processing fill request for chainId ${chainId}, claimHash: ${claimHash}`);
+
     if (!SUPPORTED_CHAINS.includes(chainId)) {
       return res.status(400).json({ error: `Unsupported chain ID: ${chainId}` });
     }
@@ -145,6 +146,16 @@ app.post('/broadcast', validateBroadcastRequest, async (req, res) => {
     // Calculate gas cost
     const baselinePriorityFee = BigInt(request.compact.mandate.baselinePriorityFee);
     const scalingFactor = BigInt(request.compact.mandate.scalingFactor);
+    const minimumAmount = BigInt(request.compact.mandate.minimumAmount);
+    const desiredSettlement = BigInt(request.context.spotOutputAmount);
+
+    // Calculate priority fee based on desired settlement
+    const priorityFee = derivePriorityFee(
+      desiredSettlement,
+      minimumAmount,
+      baselinePriorityFee,
+      scalingFactor
+    );
 
     // Add 25% buffer to dispensation for cross-chain message fee
     const bufferedDispensation = (BigInt(request.context.dispensation) * 125n) / 100n;
@@ -239,22 +250,20 @@ app.post('/broadcast', validateBroadcastRequest, async (req, res) => {
       to: request.compact.mandate.tribunal as `0x${string}`,
       value,
       data,
-      maxFeePerGas: baselinePriorityFee + scalingFactor * BigInt(300000),
-      maxPriorityFeePerGas: baselinePriorityFee,
+      maxFeePerGas: priorityFee + BigInt(300000),
+      maxPriorityFeePerGas: priorityFee,
       account,
     });
 
     const gasWithBuffer = (estimatedGas * 125n) / 100n;
 
-    // Calculate priority fee using the mandate's formula
-    const priorityFee = baselinePriorityFee + scalingFactor * gasWithBuffer;
-
-    // Get current base fee from latest block
+    // Get current base fee from latest block and calculate max fee
     const block = await publicClients[chainId].getBlock();
     const baseFee = block.baseFeePerGas ?? parseEther('0.00000005'); // 50 gwei default if baseFeePerGas is null
+    const maxFeePerGas = priorityFee + (baseFee * 120n) / 100n; // Base fee + 20% buffer
 
     // Calculate total gas cost
-    const totalGasCost = (baseFee + priorityFee) * gasWithBuffer;
+    const totalGasCost = maxFeePerGas * gasWithBuffer;
     const gasCostEth = Number(formatEther(totalGasCost));
     const gasCostUSD = gasCostEth * ethPrice;
 
@@ -281,7 +290,7 @@ app.post('/broadcast', validateBroadcastRequest, async (req, res) => {
     const tx = {
       to: request.compact.mandate.tribunal as `0x${string}`,
       value,
-      maxFeePerGas: baseFee + priorityFee,
+      maxFeePerGas,
       maxPriorityFeePerGas: priorityFee,
       gas: gasWithBuffer,
       account,
