@@ -17,12 +17,67 @@ import { BroadcastRequest } from './types/broadcast.js';
 import { SUPPORTED_CHAINS, CHAIN_CONFIG, type SupportedChainId } from './config/constants.js';
 import { validateBroadcastRequest } from './validation/broadcast.js';
 import { derivePriorityFee, deriveClaimHash } from './utils';
+import { TheCompactService } from './services/TheCompactService';
 
 config();
 
 const app = express();
 const logger = new Logger('Server');
 const priceService = new PriceService(process.env.COINGECKO_API_KEY);
+// Initialize TheCompactService with chain-specific public clients for nonce validation
+const theCompactService = new TheCompactService({
+  1: createPublicClient<Transport, ViemChain>({
+    pollingInterval: 4_000,
+    batch: {
+      multicall: true,
+    },
+    cacheTime: 4_000,
+    chain: mainnet,
+    transport: http(process.env[CHAIN_CONFIG[1].rpcEnvKey] || ''),
+  }) as PublicClient,
+  10: createPublicClient<Transport, ViemChain>({
+    pollingInterval: 4_000,
+    batch: {
+      multicall: true,
+    },
+    cacheTime: 4_000,
+    chain: optimism,
+    transport: http(process.env[CHAIN_CONFIG[10].rpcEnvKey] || ''),
+  }) as PublicClient,
+  130: createPublicClient<Transport, ViemChain>({
+    pollingInterval: 4_000,
+    batch: {
+      multicall: true,
+    },
+    cacheTime: 4_000,
+    chain: defineChain({
+      id: 130,
+      name: CHAIN_CONFIG[130].name,
+      nativeCurrency: {
+        decimals: 18,
+        name: 'Ether',
+        symbol: CHAIN_CONFIG[130].nativeToken,
+      },
+      rpcUrls: {
+        default: { http: [process.env[CHAIN_CONFIG[130].rpcEnvKey] || ''] },
+        public: { http: [process.env[CHAIN_CONFIG[130].rpcEnvKey] || ''] },
+      },
+      blockExplorers: {
+        default: { name: 'UniScan', url: CHAIN_CONFIG[130].blockExplorer },
+      },
+    }),
+    transport: http(process.env[CHAIN_CONFIG[130].rpcEnvKey] || ''),
+  }) as PublicClient,
+  8453: createPublicClient<Transport, ViemChain>({
+    pollingInterval: 4_000,
+    batch: {
+      multicall: true,
+    },
+    cacheTime: 4_000,
+    chain: base,
+    transport: http(process.env[CHAIN_CONFIG[8453].rpcEnvKey] || ''),
+  }) as PublicClient,
+});
 
 // Start price updates
 priceService.start();
@@ -36,24 +91,6 @@ process.on('SIGTERM', () => {
 process.on('SIGINT', () => {
   priceService.stop();
   process.exit(0);
-});
-
-// Custom chain configuration for UniChain
-const unichain = defineChain({
-  id: 130,
-  name: CHAIN_CONFIG[130].name,
-  nativeCurrency: {
-    decimals: 18,
-    name: 'Ether',
-    symbol: CHAIN_CONFIG[130].nativeToken,
-  },
-  rpcUrls: {
-    default: { http: [process.env[CHAIN_CONFIG[130].rpcEnvKey] || ''] },
-    public: { http: [process.env[CHAIN_CONFIG[130].rpcEnvKey] || ''] },
-  },
-  blockExplorers: {
-    default: { name: 'UniScan', url: CHAIN_CONFIG[130].blockExplorer },
-  },
 });
 
 if (!process.env.PRIVATE_KEY) {
@@ -86,7 +123,22 @@ const publicClients: Record<SupportedChainId, PublicClient> = {
   }) as PublicClient,
   130: createPublicClient<Transport, ViemChain>({
     ...commonConfig,
-    chain: unichain,
+    chain: defineChain({
+      id: 130,
+      name: CHAIN_CONFIG[130].name,
+      nativeCurrency: {
+        decimals: 18,
+        name: 'Ether',
+        symbol: CHAIN_CONFIG[130].nativeToken,
+      },
+      rpcUrls: {
+        default: { http: [process.env[CHAIN_CONFIG[130].rpcEnvKey] || ''] },
+        public: { http: [process.env[CHAIN_CONFIG[130].rpcEnvKey] || ''] },
+      },
+      blockExplorers: {
+        default: { name: 'UniScan', url: CHAIN_CONFIG[130].blockExplorer },
+      },
+    }),
     transport: http(process.env[CHAIN_CONFIG[130].rpcEnvKey] || ''),
   }) as PublicClient,
   8453: createPublicClient<Transport, ViemChain>({
@@ -110,7 +162,22 @@ const walletClients: Record<SupportedChainId, WalletClient<Transport, ViemChain>
   }),
   130: createWalletClient({
     account,
-    chain: unichain,
+    chain: defineChain({
+      id: 130,
+      name: CHAIN_CONFIG[130].name,
+      nativeCurrency: {
+        decimals: 18,
+        name: 'Ether',
+        symbol: CHAIN_CONFIG[130].nativeToken,
+      },
+      rpcUrls: {
+        default: { http: [process.env[CHAIN_CONFIG[130].rpcEnvKey] || ''] },
+        public: { http: [process.env[CHAIN_CONFIG[130].rpcEnvKey] || ''] },
+      },
+      blockExplorers: {
+        default: { name: 'UniScan', url: CHAIN_CONFIG[130].blockExplorer },
+      },
+    }),
     transport: http(process.env[CHAIN_CONFIG[130].rpcEnvKey]),
   }),
   8453: createWalletClient({
@@ -134,6 +201,36 @@ app.post('/broadcast', validateBroadcastRequest, async (req, res) => {
 
     if (!SUPPORTED_CHAINS.includes(chainId)) {
       return res.status(400).json({ error: `Unsupported chain ID: ${chainId}` });
+    }
+
+    // Check if either compact or mandate has expired or is close to expiring
+    const currentTimestamp = BigInt(Math.floor(Date.now() / 1000));
+    const COMPACT_EXPIRATION_BUFFER = 60n; // 60 seconds buffer for compact
+    const MANDATE_EXPIRATION_BUFFER = 10n; // 10 seconds buffer for mandate
+
+    if (BigInt(request.compact.expires) <= currentTimestamp + COMPACT_EXPIRATION_BUFFER) {
+      return res.status(400).json({
+        error: 'Compact is expired or expires too soon',
+        details: `Compact must have at least ${COMPACT_EXPIRATION_BUFFER} seconds until expiration`,
+      });
+    }
+
+    if (BigInt(request.compact.mandate.expires) <= currentTimestamp + MANDATE_EXPIRATION_BUFFER) {
+      return res.status(400).json({
+        error: 'Mandate is expired or expires too soon',
+        details: `Mandate must have at least ${MANDATE_EXPIRATION_BUFFER} seconds until expiration`,
+      });
+    }
+
+    // Check if nonce has already been consumed
+    const nonceConsumed = await theCompactService.hasConsumedAllocatorNonce(
+      chainId,
+      BigInt(request.compact.nonce),
+      request.compact.arbiter as `0x${string}`
+    );
+
+    if (nonceConsumed) {
+      return res.status(400).json({ error: 'Nonce has already been consumed' });
     }
 
     // Get current ETH price for the chain from memory
