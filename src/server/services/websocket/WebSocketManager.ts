@@ -1,6 +1,6 @@
 import type { IncomingMessage, Server } from "node:http";
 import { WebSocket, WebSocketServer } from "ws";
-import { Logger } from "../../utils/logger";
+import { Logger } from "../../utils/logger.js";
 
 interface WebSocketMessage {
   type: string;
