@@ -32,7 +32,7 @@ export function App() {
   const [wsStatus, setWsStatus] = useState<ConnectionStatus>("connecting");
 
   useEffect(() => {
-    const ws = new WebSocketClient("ws://localhost:3000");
+    const ws = new WebSocketClient("ws://localhost:3000/ws");
 
     ws.onOpen = () => setWsStatus("connected");
     ws.onClose = () => setWsStatus("disconnected");
