@@ -1,7 +1,7 @@
-import { defineConfig } from 'vite';
-import react from '@vitejs/plugin-react';
-import { fileURLToPath } from 'url';
-import { dirname, join } from 'path';
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
+import react from "@vitejs/plugin-react";
+import { defineConfig } from "vite";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -12,7 +12,7 @@ export default defineConfig({
     port: 5173,
   },
   build: {
-    outDir: join(__dirname, '../server/static'),
+    outDir: join(__dirname, "../server/static"),
     emptyOutDir: true,
   },
 });

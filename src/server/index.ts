@@ -1,29 +1,39 @@
-import express from 'express';
-import cors from 'cors';
-import { config } from 'dotenv';
-import { fileURLToPath } from 'url';
-import { dirname, join } from 'path';
+import { createServer } from "node:http";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
+import cors from "cors";
+import { config } from "dotenv";
+import express from "express";
 import {
   type PublicClient,
-  type WalletClient,
-  type Chain as ViemChain,
   type Transport,
+  type Chain as ViemChain,
+  type WalletClient,
   defineChain,
   encodeFunctionData,
-} from 'viem';
-import { mainnet, optimism, base } from 'viem/chains';
-import { privateKeyToAccount } from 'viem/accounts';
-import { createPublicClient, createWalletClient, http, formatEther, parseEther } from 'viem';
-import { PriceService } from './services/price/PriceService.js';
-import { Logger } from './utils/logger.js';
-import { BroadcastRequest } from './types/broadcast.js';
-import { SUPPORTED_CHAINS, CHAIN_CONFIG, type SupportedChainId } from './config/constants.js';
-import { validateBroadcastRequest } from './validation/broadcast.js';
-import { derivePriorityFee, deriveClaimHash } from './utils.js';
-import { TheCompactService } from './services/TheCompactService.js';
-import { verifyBroadcastRequest } from './validation/signature.js';
-import { createServer } from 'http';
-import { WebSocketManager } from './services/websocket/WebSocketManager';
+} from "viem";
+import {
+  http,
+  createPublicClient,
+  createWalletClient,
+  formatEther,
+  parseEther,
+} from "viem";
+import { privateKeyToAccount } from "viem/accounts";
+import { base, mainnet, optimism } from "viem/chains";
+import {
+  CHAIN_CONFIG,
+  SUPPORTED_CHAINS,
+  type SupportedChainId,
+} from "./config/constants.js";
+import { TheCompactService } from "./services/TheCompactService.js";
+import { PriceService } from "./services/price/PriceService.js";
+import { WebSocketManager } from "./services/websocket/WebSocketManager";
+import type { BroadcastRequest } from "./types/broadcast.js";
+import { deriveClaimHash, derivePriorityFee } from "./utils.js";
+import { Logger } from "./utils/logger.js";
+import { validateBroadcastRequest } from "./validation/broadcast.js";
+import { verifyBroadcastRequest } from "./validation/signature.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -32,7 +42,7 @@ config();
 
 const app = express();
 const server = createServer(app);
-const logger = new Logger('Server');
+const logger = new Logger("Server");
 const priceService = new PriceService(process.env.COINGECKO_API_KEY);
 // Initialize TheCompactService with chain-specific public clients for nonce validation
 const theCompactService = new TheCompactService({
@@ -43,7 +53,7 @@ const theCompactService = new TheCompactService({
     },
     cacheTime: 4_000,
     chain: mainnet,
-    transport: http(process.env[CHAIN_CONFIG[1].rpcEnvKey] || ''),
+    transport: http(process.env[CHAIN_CONFIG[1].rpcEnvKey] || ""),
   }) as PublicClient,
   10: createPublicClient<Transport, ViemChain>({
     pollingInterval: 4_000,
@@ -52,7 +62,7 @@ const theCompactService = new TheCompactService({
     },
     cacheTime: 4_000,
     chain: optimism,
-    transport: http(process.env[CHAIN_CONFIG[10].rpcEnvKey] || ''),
+    transport: http(process.env[CHAIN_CONFIG[10].rpcEnvKey] || ""),
   }) as PublicClient,
   130: createPublicClient<Transport, ViemChain>({
     pollingInterval: 4_000,
@@ -65,18 +75,18 @@ const theCompactService = new TheCompactService({
       name: CHAIN_CONFIG[130].name,
       nativeCurrency: {
         decimals: 18,
-        name: 'Ether',
+        name: "Ether",
         symbol: CHAIN_CONFIG[130].nativeToken,
       },
       rpcUrls: {
-        default: { http: [process.env[CHAIN_CONFIG[130].rpcEnvKey] || ''] },
-        public: { http: [process.env[CHAIN_CONFIG[130].rpcEnvKey] || ''] },
+        default: { http: [process.env[CHAIN_CONFIG[130].rpcEnvKey] || ""] },
+        public: { http: [process.env[CHAIN_CONFIG[130].rpcEnvKey] || ""] },
       },
       blockExplorers: {
-        default: { name: 'UniScan', url: CHAIN_CONFIG[130].blockExplorer },
+        default: { name: "UniScan", url: CHAIN_CONFIG[130].blockExplorer },
       },
     }),
-    transport: http(process.env[CHAIN_CONFIG[130].rpcEnvKey] || ''),
+    transport: http(process.env[CHAIN_CONFIG[130].rpcEnvKey] || ""),
   }) as PublicClient,
   8453: createPublicClient<Transport, ViemChain>({
     pollingInterval: 4_000,
@@ -85,32 +95,34 @@ const theCompactService = new TheCompactService({
     },
     cacheTime: 4_000,
     chain: base,
-    transport: http(process.env[CHAIN_CONFIG[8453].rpcEnvKey] || ''),
+    transport: http(process.env[CHAIN_CONFIG[8453].rpcEnvKey] || ""),
   }) as PublicClient,
 });
 
 const wsManager = new WebSocketManager(server);
 
 // Enable CORS for API endpoints
-app.use('/api', cors());
-app.use('/health', cors());
-app.use('/broadcast', cors());
+app.use("/api", cors());
+app.use("/health", cors());
+app.use("/broadcast", cors());
 
 // Serve static files from the static directory
-app.use(express.static(join(__dirname, 'static')));
+app.use(express.static(join(__dirname, "static")));
 
 // Handle API routes
 app.use(express.json());
 
 // Prefix existing endpoints with /api
-app.post('/api/broadcast', validateBroadcastRequest, async (req, res) => {
+app.post("/api/broadcast", validateBroadcastRequest, async (req, res) => {
   try {
     const request = req.body as BroadcastRequest;
-    const chainId = parseInt(request.chainId) as SupportedChainId;
+    const chainId = Number.parseInt(request.chainId) as SupportedChainId;
 
     // Derive and log claim hash
     const claimHash = deriveClaimHash(chainId, request.compact);
-    logger.info(`Processing fill request for chainId ${chainId}, claimHash: ${claimHash}`);
+    logger.info(
+      `Processing fill request for chainId ${chainId}, claimHash: ${claimHash}`
+    );
 
     // Verify signatures and check registration status
     request.claimHash = claimHash;
@@ -119,21 +131,31 @@ app.post('/api/broadcast', validateBroadcastRequest, async (req, res) => {
       theCompactService
     );
     if (!isValid) {
-      wsManager.broadcastFillRequest(JSON.stringify(request), false, 'Invalid signature');
+      wsManager.broadcastFillRequest(
+        JSON.stringify(request),
+        false,
+        "Invalid signature"
+      );
       return res.status(401).json({
-        error: 'Invalid signatures',
-        message: 'Failed to verify sponsor and/or allocator signatures',
+        error: "Invalid signatures",
+        message: "Failed to verify sponsor and/or allocator signatures",
       });
     }
 
     // Log registration status
     logger.info(
-      `Signature verification successful, registration status: ${isOnchainRegistration ? 'onchain' : 'offchain'}`
+      `Signature verification successful, registration status: ${isOnchainRegistration ? "onchain" : "offchain"}`
     );
 
     if (!SUPPORTED_CHAINS.includes(chainId)) {
-      wsManager.broadcastFillRequest(JSON.stringify(request), false, 'Unsupported chain');
-      return res.status(400).json({ error: `Unsupported chain ID: ${chainId}` });
+      wsManager.broadcastFillRequest(
+        JSON.stringify(request),
+        false,
+        "Unsupported chain"
+      );
+      return res
+        .status(400)
+        .json({ error: `Unsupported chain ID: ${chainId}` });
     }
 
     // Check if either compact or mandate has expired or is close to expiring
@@ -141,26 +163,32 @@ app.post('/api/broadcast', validateBroadcastRequest, async (req, res) => {
     const COMPACT_EXPIRATION_BUFFER = 60n; // 60 seconds buffer for compact
     const MANDATE_EXPIRATION_BUFFER = 10n; // 10 seconds buffer for mandate
 
-    if (BigInt(request.compact.expires) <= currentTimestamp + COMPACT_EXPIRATION_BUFFER) {
+    if (
+      BigInt(request.compact.expires) <=
+      currentTimestamp + COMPACT_EXPIRATION_BUFFER
+    ) {
       wsManager.broadcastFillRequest(
         JSON.stringify(request),
         false,
-        'Compact is expired or expires too soon'
+        "Compact is expired or expires too soon"
       );
       return res.status(400).json({
-        error: 'Compact is expired or expires too soon',
+        error: "Compact is expired or expires too soon",
         details: `Compact must have at least ${COMPACT_EXPIRATION_BUFFER} seconds until expiration`,
       });
     }
 
-    if (BigInt(request.compact.mandate.expires) <= currentTimestamp + MANDATE_EXPIRATION_BUFFER) {
+    if (
+      BigInt(request.compact.mandate.expires) <=
+      currentTimestamp + MANDATE_EXPIRATION_BUFFER
+    ) {
       wsManager.broadcastFillRequest(
         JSON.stringify(request),
         false,
-        'Mandate is expired or expires too soon'
+        "Mandate is expired or expires too soon"
       );
       return res.status(400).json({
-        error: 'Mandate is expired or expires too soon',
+        error: "Mandate is expired or expires too soon",
         details: `Mandate must have at least ${MANDATE_EXPIRATION_BUFFER} seconds until expiration`,
       });
     }
@@ -176,9 +204,9 @@ app.post('/api/broadcast', validateBroadcastRequest, async (req, res) => {
       wsManager.broadcastFillRequest(
         JSON.stringify(request),
         false,
-        'Nonce has already been consumed'
+        "Nonce has already been consumed"
       );
-      return res.status(400).json({ error: 'Nonce has already been consumed' });
+      return res.status(400).json({ error: "Nonce has already been consumed" });
     }
 
     // Get current ETH price for the chain from memory
@@ -186,10 +214,14 @@ app.post('/api/broadcast', validateBroadcastRequest, async (req, res) => {
     logger.info(`Current ETH price on chain ${chainId}: $${ethPrice}`);
 
     // Extract the dispensation amount in USD from the request
-    const dispensationUSD = parseFloat(request.context.dispensationUSD.replace('$', ''));
+    const dispensationUSD = Number.parseFloat(
+      request.context.dispensationUSD.replace("$", "")
+    );
 
     // Calculate gas cost
-    const baselinePriorityFee = BigInt(request.compact.mandate.baselinePriorityFee);
+    const baselinePriorityFee = BigInt(
+      request.compact.mandate.baselinePriorityFee
+    );
     const scalingFactor = BigInt(request.compact.mandate.scalingFactor);
     const minimumAmount = BigInt(request.compact.mandate.minimumAmount);
     const desiredSettlement = BigInt(request.context.spotOutputAmount);
@@ -203,11 +235,13 @@ app.post('/api/broadcast', validateBroadcastRequest, async (req, res) => {
     );
 
     // Add 25% buffer to dispensation for cross-chain message fee
-    const bufferedDispensation = (BigInt(request.context.dispensation) * 125n) / 100n;
+    const bufferedDispensation =
+      (BigInt(request.context.dispensation) * 125n) / 100n;
 
     // Calculate total value to send (settlement + buffered dispensation for native token, just buffered dispensation for ERC20)
     const value =
-      request.compact.mandate.token === '0x0000000000000000000000000000000000000000'
+      request.compact.mandate.token ===
+      "0x0000000000000000000000000000000000000000"
         ? BigInt(request.context.spotOutputAmount) + bufferedDispensation
         : bufferedDispensation;
 
@@ -215,54 +249,54 @@ app.post('/api/broadcast', validateBroadcastRequest, async (req, res) => {
     const data = encodeFunctionData({
       abi: [
         {
-          name: 'fill',
-          type: 'function',
-          stateMutability: 'payable',
+          name: "fill",
+          type: "function",
+          stateMutability: "payable",
           inputs: [
             {
-              name: 'claim',
-              type: 'tuple',
+              name: "claim",
+              type: "tuple",
               components: [
-                { name: 'chainId', type: 'uint256' },
+                { name: "chainId", type: "uint256" },
                 {
-                  name: 'compact',
-                  type: 'tuple',
+                  name: "compact",
+                  type: "tuple",
                   components: [
-                    { name: 'arbiter', type: 'address' },
-                    { name: 'sponsor', type: 'address' },
-                    { name: 'nonce', type: 'uint256' },
-                    { name: 'expires', type: 'uint256' },
-                    { name: 'id', type: 'uint256' },
-                    { name: 'amount', type: 'uint256' },
+                    { name: "arbiter", type: "address" },
+                    { name: "sponsor", type: "address" },
+                    { name: "nonce", type: "uint256" },
+                    { name: "expires", type: "uint256" },
+                    { name: "id", type: "uint256" },
+                    { name: "amount", type: "uint256" },
                   ],
                 },
-                { name: 'sponsorSignature', type: 'bytes' },
-                { name: 'allocatorSignature', type: 'bytes' },
+                { name: "sponsorSignature", type: "bytes" },
+                { name: "allocatorSignature", type: "bytes" },
               ],
             },
             {
-              name: 'mandate',
-              type: 'tuple',
+              name: "mandate",
+              type: "tuple",
               components: [
-                { name: 'recipient', type: 'address' },
-                { name: 'expires', type: 'uint256' },
-                { name: 'token', type: 'address' },
-                { name: 'minimumAmount', type: 'uint256' },
-                { name: 'baselinePriorityFee', type: 'uint256' },
-                { name: 'scalingFactor', type: 'uint256' },
-                { name: 'salt', type: 'bytes32' },
+                { name: "recipient", type: "address" },
+                { name: "expires", type: "uint256" },
+                { name: "token", type: "address" },
+                { name: "minimumAmount", type: "uint256" },
+                { name: "baselinePriorityFee", type: "uint256" },
+                { name: "scalingFactor", type: "uint256" },
+                { name: "salt", type: "bytes32" },
               ],
             },
-            { name: 'claimant', type: 'address' },
+            { name: "claimant", type: "address" },
           ],
           outputs: [
-            { name: 'mandateHash', type: 'bytes32' },
-            { name: 'settlementAmount', type: 'uint256' },
-            { name: 'claimAmount', type: 'uint256' },
+            { name: "mandateHash", type: "bytes32" },
+            { name: "settlementAmount", type: "uint256" },
+            { name: "claimAmount", type: "uint256" },
           ],
         },
       ],
-      functionName: 'fill',
+      functionName: "fill",
       args: [
         {
           chainId: BigInt(request.chainId),
@@ -274,7 +308,8 @@ app.post('/api/broadcast', validateBroadcastRequest, async (req, res) => {
             id: BigInt(request.compact.id),
             amount: BigInt(request.compact.amount),
           },
-          sponsorSignature: (request.sponsorSignature || '0x' + '0'.repeat(128)) as `0x${string}`,
+          sponsorSignature: (request.sponsorSignature ||
+            `0x${"0".repeat(128)}`) as `0x${string}`,
           allocatorSignature: request.allocatorSignature as `0x${string}`,
         },
         {
@@ -282,7 +317,9 @@ app.post('/api/broadcast', validateBroadcastRequest, async (req, res) => {
           expires: BigInt(request.compact.mandate.expires),
           token: request.compact.mandate.token as `0x${string}`,
           minimumAmount: BigInt(request.compact.mandate.minimumAmount),
-          baselinePriorityFee: BigInt(request.compact.mandate.baselinePriorityFee),
+          baselinePriorityFee: BigInt(
+            request.compact.mandate.baselinePriorityFee
+          ),
           scalingFactor: BigInt(request.compact.mandate.scalingFactor),
           salt: request.compact.mandate.salt as `0x${string}`,
         },
@@ -304,7 +341,7 @@ app.post('/api/broadcast', validateBroadcastRequest, async (req, res) => {
 
     // Get current base fee from latest block and calculate max fee
     const block = await publicClients[chainId].getBlock();
-    const baseFee = block.baseFeePerGas ?? parseEther('0.00000005'); // 50 gwei default if baseFeePerGas is null
+    const baseFee = block.baseFeePerGas ?? parseEther("0.00000005"); // 50 gwei default if baseFeePerGas is null
     const maxFeePerGas = priorityFee + (baseFee * 120n) / 100n; // Base fee + 20% buffer
 
     // Calculate total gas cost
@@ -319,10 +356,14 @@ app.post('/api/broadcast', validateBroadcastRequest, async (req, res) => {
     const isProfitable = netProfitUSD > minProfitUSD;
 
     if (!isProfitable) {
-      wsManager.broadcastFillRequest(JSON.stringify(request), false, 'Transaction not profitable');
+      wsManager.broadcastFillRequest(
+        JSON.stringify(request),
+        false,
+        "Transaction not profitable"
+      );
       return res.status(200).json({
         success: false,
-        reason: 'Transaction not profitable',
+        reason: "Transaction not profitable",
         details: {
           dispensationUSD,
           gasCostUSD,
@@ -357,52 +398,52 @@ app.post('/api/broadcast', validateBroadcastRequest, async (req, res) => {
       },
     });
   } catch (error) {
-    logger.error('Error processing broadcast request:', error);
+    logger.error("Error processing broadcast request:", error);
     wsManager.broadcastFillRequest(
       JSON.stringify(req.body),
       false,
-      error instanceof Error ? error.message : 'Unknown error'
+      error instanceof Error ? error.message : "Unknown error"
     );
     return res.status(500).json({
-      error: 'Internal server error',
-      message: error instanceof Error ? error.message : 'Unknown error',
+      error: "Internal server error",
+      message: error instanceof Error ? error.message : "Unknown error",
     });
   }
 });
 
 // Health check endpoint
-app.get('/api/health', (_req, res) => {
+app.get("/api/health", (_req, res) => {
   res.json({
-    status: 'ok',
+    status: "ok",
     timestamp: Math.floor(Date.now() / 1000),
   });
 });
 
 // Serve index.html for all other routes to support client-side routing
-app.get('*', (req, res) => {
+app.get("*", (req, res) => {
   // Don't serve index.html for /ws or /api routes
-  if (req.path.startsWith('/ws') || req.path.startsWith('/api')) {
-    return res.status(404).json({ error: 'Not found' });
+  if (req.path.startsWith("/ws") || req.path.startsWith("/api")) {
+    return res.status(404).json({ error: "Not found" });
   }
-  res.sendFile(join(__dirname, 'static', 'index.html'));
+  res.sendFile(join(__dirname, "static", "index.html"));
 });
 
 // Start price updates
 priceService.start();
 
 // Ensure price service is stopped when the process exits
-process.on('SIGTERM', () => {
+process.on("SIGTERM", () => {
   priceService.stop();
   process.exit(0);
 });
 
-process.on('SIGINT', () => {
+process.on("SIGINT", () => {
   priceService.stop();
   process.exit(0);
 });
 
 if (!process.env.PRIVATE_KEY) {
-  throw new Error('PRIVATE_KEY environment variable is required');
+  throw new Error("PRIVATE_KEY environment variable is required");
 }
 
 // Initialize the account from private key
@@ -422,12 +463,12 @@ const publicClients: Record<SupportedChainId, PublicClient> = {
   1: createPublicClient<Transport, ViemChain>({
     ...commonConfig,
     chain: mainnet,
-    transport: http(process.env[CHAIN_CONFIG[1].rpcEnvKey] || ''),
+    transport: http(process.env[CHAIN_CONFIG[1].rpcEnvKey] || ""),
   }) as PublicClient,
   10: createPublicClient<Transport, ViemChain>({
     ...commonConfig,
     chain: optimism,
-    transport: http(process.env[CHAIN_CONFIG[10].rpcEnvKey] || ''),
+    transport: http(process.env[CHAIN_CONFIG[10].rpcEnvKey] || ""),
   }) as PublicClient,
   130: createPublicClient<Transport, ViemChain>({
     ...commonConfig,
@@ -436,28 +477,31 @@ const publicClients: Record<SupportedChainId, PublicClient> = {
       name: CHAIN_CONFIG[130].name,
       nativeCurrency: {
         decimals: 18,
-        name: 'Ether',
+        name: "Ether",
         symbol: CHAIN_CONFIG[130].nativeToken,
       },
       rpcUrls: {
-        default: { http: [process.env[CHAIN_CONFIG[130].rpcEnvKey] || ''] },
-        public: { http: [process.env[CHAIN_CONFIG[130].rpcEnvKey] || ''] },
+        default: { http: [process.env[CHAIN_CONFIG[130].rpcEnvKey] || ""] },
+        public: { http: [process.env[CHAIN_CONFIG[130].rpcEnvKey] || ""] },
       },
       blockExplorers: {
-        default: { name: 'UniScan', url: CHAIN_CONFIG[130].blockExplorer },
+        default: { name: "UniScan", url: CHAIN_CONFIG[130].blockExplorer },
       },
     }),
-    transport: http(process.env[CHAIN_CONFIG[130].rpcEnvKey] || ''),
+    transport: http(process.env[CHAIN_CONFIG[130].rpcEnvKey] || ""),
   }) as PublicClient,
   8453: createPublicClient<Transport, ViemChain>({
     ...commonConfig,
     chain: base,
-    transport: http(process.env[CHAIN_CONFIG[8453].rpcEnvKey] || ''),
+    transport: http(process.env[CHAIN_CONFIG[8453].rpcEnvKey] || ""),
   }) as PublicClient,
 };
 
 // Initialize wallet clients for different chains
-const walletClients: Record<SupportedChainId, WalletClient<Transport, ViemChain>> = {
+const walletClients: Record<
+  SupportedChainId,
+  WalletClient<Transport, ViemChain>
+> = {
   1: createWalletClient({
     account,
     chain: mainnet,
@@ -475,15 +519,15 @@ const walletClients: Record<SupportedChainId, WalletClient<Transport, ViemChain>
       name: CHAIN_CONFIG[130].name,
       nativeCurrency: {
         decimals: 18,
-        name: 'Ether',
+        name: "Ether",
         symbol: CHAIN_CONFIG[130].nativeToken,
       },
       rpcUrls: {
-        default: { http: [process.env[CHAIN_CONFIG[130].rpcEnvKey] || ''] },
-        public: { http: [process.env[CHAIN_CONFIG[130].rpcEnvKey] || ''] },
+        default: { http: [process.env[CHAIN_CONFIG[130].rpcEnvKey] || ""] },
+        public: { http: [process.env[CHAIN_CONFIG[130].rpcEnvKey] || ""] },
       },
       blockExplorers: {
-        default: { name: 'UniScan', url: CHAIN_CONFIG[130].blockExplorer },
+        default: { name: "UniScan", url: CHAIN_CONFIG[130].blockExplorer },
       },
     }),
     transport: http(process.env[CHAIN_CONFIG[130].rpcEnvKey]),
@@ -499,7 +543,7 @@ const walletClients: Record<SupportedChainId, WalletClient<Transport, ViemChain>
 wsManager.broadcastAccountUpdate(account.address);
 
 // Update price service to broadcast prices
-priceService.on('price_update', (chainId: number, price: number) => {
+priceService.on("price_update", (chainId: number, price: number) => {
   wsManager.broadcastEthPrice(chainId, price.toString());
 });
 

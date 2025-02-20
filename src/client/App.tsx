@@ -1,5 +1,5 @@
-import React, { useEffect, useState } from 'react';
-import { WebSocketClient } from './websocket';
+import React, { useEffect, useState } from "react";
+import { WebSocketClient } from "./websocket";
 
 interface FillRequest {
   request: unknown;
@@ -22,27 +22,30 @@ interface EthPrices {
   };
 }
 
-type ConnectionStatus = 'connecting' | 'connected' | 'disconnected';
+type ConnectionStatus = "connecting" | "connected" | "disconnected";
 
 export function App() {
   const [serverAccount, setServerAccount] = useState<string | null>(null);
   const [tokenBalances, setTokenBalances] = useState<TokenBalances>({});
   const [ethPrices, setEthPrices] = useState<EthPrices>({});
   const [fillRequests, setFillRequests] = useState<FillRequest[]>([]);
-  const [wsStatus, setWsStatus] = useState<ConnectionStatus>('connecting');
+  const [wsStatus, setWsStatus] = useState<ConnectionStatus>("connecting");
 
   useEffect(() => {
-    const ws = new WebSocketClient('ws://localhost:3000');
+    const ws = new WebSocketClient("ws://localhost:3000");
 
-    ws.onOpen = () => setWsStatus('connected');
-    ws.onClose = () => setWsStatus('disconnected');
+    ws.onOpen = () => setWsStatus("connected");
+    ws.onClose = () => setWsStatus("disconnected");
 
     ws.onAccountUpdate = (account: string) => {
       setServerAccount(account);
     };
 
-    ws.onTokenBalances = (chainId: number, balances: Record<string, string>) => {
-      setTokenBalances(prev => ({
+    ws.onTokenBalances = (
+      chainId: number,
+      balances: Record<string, string>
+    ) => {
+      setTokenBalances((prev) => ({
         ...prev,
         [chainId]: {
           balances,
@@ -52,7 +55,7 @@ export function App() {
     };
 
     ws.onEthPrice = (chainId: number, price: string) => {
-      setEthPrices(prev => ({
+      setEthPrices((prev) => ({
         ...prev,
         [chainId]: {
           price,
@@ -61,8 +64,12 @@ export function App() {
       }));
     };
 
-    ws.onFillRequest = (request: unknown, willFill: boolean, reason?: string) => {
-      setFillRequests(prev =>
+    ws.onFillRequest = (
+      request: unknown,
+      willFill: boolean,
+      reason?: string
+    ) => {
+      setFillRequests((prev) =>
         [
           {
             request,
@@ -89,11 +96,11 @@ export function App() {
           <div className="flex items-center space-x-2">
             <div
               className={`w-3 h-3 rounded-full ${
-                wsStatus === 'connected'
-                  ? 'bg-green-500'
-                  : wsStatus === 'connecting'
-                    ? 'bg-yellow-500'
-                    : 'bg-red-500'
+                wsStatus === "connected"
+                  ? "bg-green-500"
+                  : wsStatus === "connecting"
+                    ? "bg-yellow-500"
+                    : "bg-red-500"
               }`}
             />
             <span className="capitalize">{wsStatus}</span>
@@ -103,7 +110,9 @@ export function App() {
         {/* Server Account */}
         <div className="bg-white rounded-lg shadow p-4">
           <h2 className="text-lg font-semibold mb-2">Server Account</h2>
-          <div className="font-mono break-all">{serverAccount || 'Waiting for account...'}</div>
+          <div className="font-mono break-all">
+            {serverAccount || "Waiting for account..."}
+          </div>
         </div>
 
         {/* ETH Prices */}
@@ -113,15 +122,22 @@ export function App() {
             <p className="text-gray-500">No price data yet</p>
           ) : (
             <div className="space-y-2">
-              {Object.entries(ethPrices).map(([chainId, { price, timestamp }]) => (
-                <div key={chainId} className="flex justify-between items-center">
-                  <span>Chain {chainId}:</span>
-                  <span className="font-mono">${parseFloat(price).toFixed(2)}</span>
-                  <span className="text-sm text-gray-500">
-                    {new Date(timestamp).toLocaleTimeString()}
-                  </span>
-                </div>
-              ))}
+              {Object.entries(ethPrices).map(
+                ([chainId, { price, timestamp }]) => (
+                  <div
+                    key={chainId}
+                    className="flex justify-between items-center"
+                  >
+                    <span>Chain {chainId}:</span>
+                    <span className="font-mono">
+                      ${Number.parseFloat(price).toFixed(2)}
+                    </span>
+                    <span className="text-sm text-gray-500">
+                      {new Date(timestamp).toLocaleTimeString()}
+                    </span>
+                  </div>
+                )
+              )}
             </div>
           )}
         </div>
@@ -133,22 +149,24 @@ export function App() {
             <p className="text-gray-500">No balance data yet</p>
           ) : (
             <div className="space-y-4">
-              {Object.entries(tokenBalances).map(([chainId, { balances, timestamp }]) => (
-                <div key={chainId}>
-                  <h3 className="font-medium">Chain {chainId}</h3>
-                  <div className="space-y-1 mt-2">
-                    {Object.entries(balances).map(([token, balance]) => (
-                      <div key={token} className="flex justify-between">
-                        <span className="font-mono">{token}</span>
-                        <span className="font-mono">{String(balance)}</span>
-                      </div>
-                    ))}
+              {Object.entries(tokenBalances).map(
+                ([chainId, { balances, timestamp }]) => (
+                  <div key={chainId}>
+                    <h3 className="font-medium">Chain {chainId}</h3>
+                    <div className="space-y-1 mt-2">
+                      {Object.entries(balances).map(([token, balance]) => (
+                        <div key={token} className="flex justify-between">
+                          <span className="font-mono">{token}</span>
+                          <span className="font-mono">{String(balance)}</span>
+                        </div>
+                      ))}
+                    </div>
+                    <div className="text-sm text-gray-500 mt-1">
+                      Updated: {new Date(timestamp).toLocaleTimeString()}
+                    </div>
                   </div>
-                  <div className="text-sm text-gray-500 mt-1">
-                    Updated: {new Date(timestamp).toLocaleTimeString()}
-                  </div>
-                </div>
-              ))}
+                )
+              )}
             </div>
           )}
         </div>
@@ -165,13 +183,19 @@ export function App() {
                   <div className="flex justify-between items-start">
                     <div className="space-y-1">
                       <div className="font-medium">
-                        Will Fill:{' '}
-                        <span className={request.willFill ? 'text-green-600' : 'text-red-600'}>
-                          {request.willFill ? 'Yes' : 'No'}
+                        Will Fill:{" "}
+                        <span
+                          className={
+                            request.willFill ? "text-green-600" : "text-red-600"
+                          }
+                        >
+                          {request.willFill ? "Yes" : "No"}
                         </span>
                       </div>
                       {request.reason && (
-                        <div className="text-sm text-gray-600">Reason: {request.reason}</div>
+                        <div className="text-sm text-gray-600">
+                          Reason: {request.reason}
+                        </div>
                       )}
                       <div className="text-sm text-gray-500">
                         {new Date(request.timestamp).toLocaleTimeString()}

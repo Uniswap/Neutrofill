@@ -1,7 +1,10 @@
-import { Logger } from '../../utils/logger.js';
-import { CoinGeckoProvider } from './CoinGeckoProvider.js';
-import { SUPPORTED_CHAINS, type SupportedChainId } from '../../config/constants.js';
-import EventEmitter from 'events';
+import EventEmitter from "node:events";
+import {
+  SUPPORTED_CHAINS,
+  type SupportedChainId,
+} from "../../config/constants.js";
+import { Logger } from "../../utils/logger.js";
+import { CoinGeckoProvider } from "./CoinGeckoProvider.js";
 
 interface PriceData {
   price: number;
@@ -18,21 +21,21 @@ export class PriceService extends EventEmitter {
   constructor(apiKey?: string) {
     super();
     this.prices = new Map();
-    this.logger = new Logger('PriceService');
+    this.logger = new Logger("PriceService");
     this.provider = new CoinGeckoProvider(apiKey);
     this.updateInterval = null;
   }
 
   public start(): void {
     // Initial price fetch
-    this.updatePrices().catch(error => {
-      this.logger.error('Failed to fetch initial prices:', error);
+    this.updatePrices().catch((error) => {
+      this.logger.error("Failed to fetch initial prices:", error);
     });
 
     // Set up periodic updates
     this.updateInterval = setInterval(() => {
-      this.updatePrices().catch(error => {
-        this.logger.error('Failed to update prices:', error);
+      this.updatePrices().catch((error) => {
+        this.logger.error("Failed to update prices:", error);
       });
     }, this.UPDATE_INTERVAL);
   }
@@ -70,9 +73,12 @@ export class PriceService extends EventEmitter {
         this.logger.debug(`Updated ETH price for chain ${chainId}: $${price}`);
 
         // Emit the price update
-        this.emit('price_update', chainId, price);
+        this.emit("price_update", chainId, price);
       } catch (error) {
-        this.logger.error(`Failed to update price for chain ${chainId}:`, error);
+        this.logger.error(
+          `Failed to update price for chain ${chainId}:`,
+          error
+        );
         // Don't update the price if there's an error, keep using the old one
       }
     }

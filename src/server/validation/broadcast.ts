@@ -1,5 +1,5 @@
-import { z } from 'zod';
-import { Request, Response, NextFunction } from 'express';
+import type { NextFunction, Request, Response } from "express";
+import { z } from "zod";
 
 // Schema definitions
 const MandateSchema = z.object({
@@ -60,12 +60,12 @@ export function validateBroadcastRequestMiddleware(
   } catch (error) {
     if (error instanceof z.ZodError) {
       res.status(400).json({
-        error: 'Invalid request data',
+        error: "Invalid request data",
         details: error.errors,
       });
     } else {
       res.status(500).json({
-        error: 'Internal server error',
+        error: "Internal server error",
       });
     }
   }

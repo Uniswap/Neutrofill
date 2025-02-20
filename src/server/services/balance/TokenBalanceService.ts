@@ -1,15 +1,15 @@
-import { type PublicClient } from 'viem';
-import { Logger } from '../../utils/logger.js';
-import { CHAIN_CONFIG, type SupportedChainId } from '../../config/constants.js';
+import type { PublicClient } from "viem";
+import { CHAIN_CONFIG, type SupportedChainId } from "../../config/constants.js";
+import { Logger } from "../../utils/logger.js";
 
 // Standard ERC20 ABI for balanceOf
 const ERC20_ABI = [
   {
-    name: 'balanceOf',
-    type: 'function',
-    inputs: [{ name: 'account', type: 'address' }],
-    outputs: [{ name: 'balance', type: 'uint256' }],
-    stateMutability: 'view',
+    name: "balanceOf",
+    type: "function",
+    inputs: [{ name: "account", type: "address" }],
+    outputs: [{ name: "balance", type: "uint256" }],
+    stateMutability: "view",
   } as const,
 ];
 
@@ -28,9 +28,12 @@ export class TokenBalanceService {
   private readonly UPDATE_INTERVAL = 2000; // 2 seconds
   private readonly accountAddress: `0x${string}`;
 
-  constructor(accountAddress: `0x${string}`, chainClients: { [chainId: number]: PublicClient }) {
+  constructor(
+    accountAddress: `0x${string}`,
+    chainClients: { [chainId: number]: PublicClient }
+  ) {
     this.balances = new Map();
-    this.logger = new Logger('TokenBalanceService');
+    this.logger = new Logger("TokenBalanceService");
     this.clients = chainClients;
     this.updateInterval = null;
     this.accountAddress = accountAddress;
@@ -42,25 +45,25 @@ export class TokenBalanceService {
     }
 
     // Initial balance fetch
-    this.updateBalances().catch(error => {
-      this.logger.error('Failed to fetch initial balances:', error);
+    this.updateBalances().catch((error) => {
+      this.logger.error("Failed to fetch initial balances:", error);
     });
 
     // Set up periodic updates
     this.updateInterval = setInterval(() => {
-      this.updateBalances().catch(error => {
-        this.logger.error('Failed to update balances:', error);
+      this.updateBalances().catch((error) => {
+        this.logger.error("Failed to update balances:", error);
       });
     }, this.UPDATE_INTERVAL);
 
-    this.logger.info('Balance monitoring started');
+    this.logger.info("Balance monitoring started");
   }
 
   public stop(): void {
     if (this.updateInterval) {
       clearInterval(this.updateInterval);
       this.updateInterval = null;
-      this.logger.info('Balance monitoring stopped');
+      this.logger.info("Balance monitoring stopped");
     }
   }
 
@@ -82,20 +85,22 @@ export class TokenBalanceService {
           };
 
           // Get native ETH balance
-          balances.ETH = await client.getBalance({ address: this.accountAddress });
+          balances.ETH = await client.getBalance({
+            address: this.accountAddress,
+          });
 
           // Get ERC20 token balances using readContract like TheCompactService
           const [wethBalance, usdcBalance] = await Promise.all([
             client.readContract({
               address: config.tokens.WETH.address,
               abi: ERC20_ABI,
-              functionName: 'balanceOf',
+              functionName: "balanceOf",
               args: [this.accountAddress],
             }),
             client.readContract({
               address: config.tokens.USDC.address,
               abi: ERC20_ABI,
-              functionName: 'balanceOf',
+              functionName: "balanceOf",
               args: [this.accountAddress],
             }),
           ]);
@@ -107,9 +112,9 @@ export class TokenBalanceService {
         })
       );
 
-      this.logger.debug('Balances updated successfully');
+      this.logger.debug("Balances updated successfully");
     } catch (error) {
-      this.logger.error('Failed to update balances:', error);
+      this.logger.error("Failed to update balances:", error);
     }
   }
 }
