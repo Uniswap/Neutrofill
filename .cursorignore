@@ -1,1 +1,11 @@
 .env
+!package.json
+!.husky/pre-commit
+!tsconfig.json
+!tsconfig.server.json
+!tsconfig.client.json
+!vite.config.ts
+!biome.json
+!.gitignore
+!.npmrc
+!.eslintrc.json
