@@ -1,13 +1,4 @@
 #!/usr/bin/env sh
+. "$(dirname -- "$0")/_/husky.sh"
 
-# Run typecheck
-npm run typecheck
-
-# Run lint-staged (includes prettier and eslint)
-npm run lint-staged
-
-# Run tests
-npm test
-
-# Run build check
-npm run build || exit 1
+npx lint-staged
