@@ -1,0 +1,10 @@
+#!/usr/bin/env sh
+
+# Run typecheck
+npm run typecheck
+
+# Run lint-staged (includes prettier and eslint)
+npm run lint-staged
+
+# Run build check
+npm run build || exit 1

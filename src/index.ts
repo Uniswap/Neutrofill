@@ -1,6 +1,17 @@
 import express from 'express';
 import { config } from 'dotenv';
-import { createPublicClient, createWalletClient, http, parseEther, formatEther, type PublicClient, type WalletClient, type Chain } from 'viem';
+import {
+  createPublicClient,
+  createWalletClient,
+  http,
+  parseEther,
+  formatEther,
+  type PublicClient,
+  type WalletClient,
+  type Chain as ViemChain,
+  type Transport,
+  defineChain,
+} from 'viem';
 import { mainnet, optimism, base } from 'viem/chains';
 import { privateKeyToAccount } from 'viem/accounts';
 import { PriceService } from './services/price/PriceService.js';
@@ -29,10 +40,9 @@ process.on('SIGINT', () => {
 });
 
 // Custom chain configuration for UniChain
-const unichain = {
+const unichain = defineChain({
   id: 130,
   name: CHAIN_CONFIG[130].name,
-  network: 'unichain',
   nativeCurrency: {
     decimals: 18,
     name: 'Ether',
@@ -43,9 +53,9 @@ const unichain = {
     public: { http: [process.env[CHAIN_CONFIG[130].rpcEnvKey] || ''] },
   },
   blockExplorers: {
-    default: { name: 'UniScan', url: CHAIN_CONFIG[130].blockExplorer }
-  }
-} as const;
+    default: { name: 'UniScan', url: CHAIN_CONFIG[130].blockExplorer },
+  },
+});
 
 if (!process.env.PRIVATE_KEY) {
   throw new Error('PRIVATE_KEY environment variable is required');
@@ -54,48 +64,61 @@ if (!process.env.PRIVATE_KEY) {
 // Initialize the account from private key
 const account = privateKeyToAccount(process.env.PRIVATE_KEY as `0x${string}`);
 
+// Configure clients with specific settings
+const commonConfig = {
+  pollingInterval: 4_000,
+  batch: {
+    multicall: true,
+  },
+  cacheTime: 4_000,
+} as const;
+
 // Initialize public clients for different chains
 const publicClients: Record<SupportedChainId, PublicClient> = {
-  1: createPublicClient({
+  1: createPublicClient<Transport, ViemChain>({
+    ...commonConfig,
     chain: mainnet,
-    transport: http(process.env[CHAIN_CONFIG[1].rpcEnvKey])
-  }),
-  10: createPublicClient({
+    transport: http(process.env[CHAIN_CONFIG[1].rpcEnvKey] || ''),
+  }) as PublicClient,
+  10: createPublicClient<Transport, ViemChain>({
+    ...commonConfig,
     chain: optimism,
-    transport: http(process.env[CHAIN_CONFIG[10].rpcEnvKey])
-  }),
-  130: createPublicClient({
+    transport: http(process.env[CHAIN_CONFIG[10].rpcEnvKey] || ''),
+  }) as PublicClient,
+  130: createPublicClient<Transport, ViemChain>({
+    ...commonConfig,
     chain: unichain,
-    transport: http(process.env[CHAIN_CONFIG[130].rpcEnvKey])
-  }),
-  8453: createPublicClient({
+    transport: http(process.env[CHAIN_CONFIG[130].rpcEnvKey] || ''),
+  }) as PublicClient,
+  8453: createPublicClient<Transport, ViemChain>({
+    ...commonConfig,
     chain: base,
-    transport: http(process.env[CHAIN_CONFIG[8453].rpcEnvKey])
-  })
+    transport: http(process.env[CHAIN_CONFIG[8453].rpcEnvKey] || ''),
+  }) as PublicClient,
 };
 
 // Initialize wallet clients for different chains
-const walletClients: Record<SupportedChainId, WalletClient> = {
+const walletClients: Record<SupportedChainId, WalletClient<Transport, ViemChain>> = {
   1: createWalletClient({
     account,
     chain: mainnet,
-    transport: http(process.env[CHAIN_CONFIG[1].rpcEnvKey])
+    transport: http(process.env[CHAIN_CONFIG[1].rpcEnvKey]),
   }),
   10: createWalletClient({
     account,
     chain: optimism,
-    transport: http(process.env[CHAIN_CONFIG[10].rpcEnvKey])
+    transport: http(process.env[CHAIN_CONFIG[10].rpcEnvKey]),
   }),
   130: createWalletClient({
     account,
     chain: unichain,
-    transport: http(process.env[CHAIN_CONFIG[130].rpcEnvKey])
+    transport: http(process.env[CHAIN_CONFIG[130].rpcEnvKey]),
   }),
   8453: createWalletClient({
     account,
     chain: base,
-    transport: http(process.env[CHAIN_CONFIG[8453].rpcEnvKey])
-  })
+    transport: http(process.env[CHAIN_CONFIG[8453].rpcEnvKey]),
+  }),
 };
 
 app.use(express.json());
@@ -115,21 +138,21 @@ app.post('/broadcast', async (req, res) => {
 
     // Extract the dispensation amount in USD from the request
     const dispensationUSD = parseFloat(request.context.dispensationUSD.replace('$', ''));
-    
+
     // Calculate gas cost
     const baselinePriorityFee = BigInt(request.compact.mandate.baselinePriorityFee);
     const scalingFactor = BigInt(request.compact.mandate.scalingFactor);
-    
+
     // TODO: Calculate actual gas limit based on the transaction
     const estimatedGasLimit = 300000n; // This should be properly estimated
-    
+
     // Calculate priority fee using the mandate's formula
-    const priorityFee = baselinePriorityFee + (scalingFactor * estimatedGasLimit);
-    
-    // Get current base fee
+    const priorityFee = baselinePriorityFee + scalingFactor * estimatedGasLimit;
+
+    // Get current base fee from latest block
     const block = await publicClients[chainId].getBlock();
-    const baseFee = block.baseFeePerGas ?? parseEther('0.00000005'); // 50 gwei default
-    
+    const baseFee = block.baseFeePerGas ?? parseEther('0.00000005'); // 50 gwei default if baseFeePerGas is null
+
     // Calculate total gas cost
     const totalGasCost = (baseFee + priorityFee) * estimatedGasLimit;
     const gasCostEth = Number(formatEther(totalGasCost));
@@ -140,7 +163,7 @@ app.post('/broadcast', async (req, res) => {
     const minProfitUSD = 0.5; // Minimum profit threshold in USD
 
     const isProfitable = netProfitUSD > minProfitUSD;
-    
+
     if (!isProfitable) {
       return res.status(200).json({
         success: false,
@@ -149,13 +172,13 @@ app.post('/broadcast', async (req, res) => {
           dispensationUSD,
           gasCostUSD,
           netProfitUSD,
-          minProfitUSD
-        }
+          minProfitUSD,
+        },
       });
     }
 
     // TODO: Add transaction simulation here
-    
+
     // Submit the transaction
     // TODO: Build the actual transaction data based on the compact format
     const tx = {
@@ -164,6 +187,8 @@ app.post('/broadcast', async (req, res) => {
       maxFeePerGas: baseFee + priorityFee,
       maxPriorityFeePerGas: priorityFee,
       gas: estimatedGasLimit,
+      account,
+      chain: null, // Required by viem but not used since chain is specified in the wallet client
       // data: will be constructed based on the compact format
     };
 
@@ -176,15 +201,14 @@ app.post('/broadcast', async (req, res) => {
       details: {
         dispensationUSD,
         gasCostUSD,
-        netProfitUSD
-      }
+        netProfitUSD,
+      },
     });
-
   } catch (error) {
     logger.error('Error processing broadcast request:', error);
     return res.status(500).json({
       error: 'Internal server error',
-      message: error instanceof Error ? error.message : 'Unknown error'
+      message: error instanceof Error ? error.message : 'Unknown error',
     });
   }
 });
