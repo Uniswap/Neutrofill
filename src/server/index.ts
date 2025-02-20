@@ -1,6 +1,8 @@
 import express from 'express';
 import cors from 'cors';
 import { config } from 'dotenv';
+import { fileURLToPath } from 'url';
+import { dirname, join } from 'path';
 import {
   type PublicClient,
   type WalletClient,
@@ -20,10 +22,16 @@ import { validateBroadcastRequest } from './validation/broadcast.js';
 import { derivePriorityFee, deriveClaimHash } from './utils.js';
 import { TheCompactService } from './services/TheCompactService.js';
 import { verifyBroadcastRequest } from './validation/signature.js';
+import { createServer } from 'http';
+import { WebSocketManager } from './services/websocket/WebSocketManager';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
 
 config();
 
 const app = express();
+const server = createServer(app);
 const logger = new Logger('Server');
 const priceService = new PriceService(process.env.COINGECKO_API_KEY);
 // Initialize TheCompactService with chain-specific public clients for nonce validation
@@ -81,119 +89,21 @@ const theCompactService = new TheCompactService({
   }) as PublicClient,
 });
 
-// Start price updates
-priceService.start();
+const wsManager = new WebSocketManager(server);
 
-// Ensure price service is stopped when the process exits
-process.on('SIGTERM', () => {
-  priceService.stop();
-  process.exit(0);
-});
+// Enable CORS for API endpoints
+app.use('/api', cors());
+app.use('/health', cors());
+app.use('/broadcast', cors());
 
-process.on('SIGINT', () => {
-  priceService.stop();
-  process.exit(0);
-});
+// Serve static files from the static directory
+app.use(express.static(join(__dirname, 'static')));
 
-if (!process.env.PRIVATE_KEY) {
-  throw new Error('PRIVATE_KEY environment variable is required');
-}
-
-// Initialize the account from private key
-const account = privateKeyToAccount(process.env.PRIVATE_KEY as `0x${string}`);
-
-// Configure clients with specific settings
-const commonConfig = {
-  pollingInterval: 4_000,
-  batch: {
-    multicall: true,
-  },
-  cacheTime: 4_000,
-} as const;
-
-// Initialize public clients for different chains
-const publicClients: Record<SupportedChainId, PublicClient> = {
-  1: createPublicClient<Transport, ViemChain>({
-    ...commonConfig,
-    chain: mainnet,
-    transport: http(process.env[CHAIN_CONFIG[1].rpcEnvKey] || ''),
-  }) as PublicClient,
-  10: createPublicClient<Transport, ViemChain>({
-    ...commonConfig,
-    chain: optimism,
-    transport: http(process.env[CHAIN_CONFIG[10].rpcEnvKey] || ''),
-  }) as PublicClient,
-  130: createPublicClient<Transport, ViemChain>({
-    ...commonConfig,
-    chain: defineChain({
-      id: 130,
-      name: CHAIN_CONFIG[130].name,
-      nativeCurrency: {
-        decimals: 18,
-        name: 'Ether',
-        symbol: CHAIN_CONFIG[130].nativeToken,
-      },
-      rpcUrls: {
-        default: { http: [process.env[CHAIN_CONFIG[130].rpcEnvKey] || ''] },
-        public: { http: [process.env[CHAIN_CONFIG[130].rpcEnvKey] || ''] },
-      },
-      blockExplorers: {
-        default: { name: 'UniScan', url: CHAIN_CONFIG[130].blockExplorer },
-      },
-    }),
-    transport: http(process.env[CHAIN_CONFIG[130].rpcEnvKey] || ''),
-  }) as PublicClient,
-  8453: createPublicClient<Transport, ViemChain>({
-    ...commonConfig,
-    chain: base,
-    transport: http(process.env[CHAIN_CONFIG[8453].rpcEnvKey] || ''),
-  }) as PublicClient,
-};
-
-// Initialize wallet clients for different chains
-const walletClients: Record<SupportedChainId, WalletClient<Transport, ViemChain>> = {
-  1: createWalletClient({
-    account,
-    chain: mainnet,
-    transport: http(process.env[CHAIN_CONFIG[1].rpcEnvKey]),
-  }),
-  10: createWalletClient({
-    account,
-    chain: optimism,
-    transport: http(process.env[CHAIN_CONFIG[10].rpcEnvKey]),
-  }),
-  130: createWalletClient({
-    account,
-    chain: defineChain({
-      id: 130,
-      name: CHAIN_CONFIG[130].name,
-      nativeCurrency: {
-        decimals: 18,
-        name: 'Ether',
-        symbol: CHAIN_CONFIG[130].nativeToken,
-      },
-      rpcUrls: {
-        default: { http: [process.env[CHAIN_CONFIG[130].rpcEnvKey] || ''] },
-        public: { http: [process.env[CHAIN_CONFIG[130].rpcEnvKey] || ''] },
-      },
-      blockExplorers: {
-        default: { name: 'UniScan', url: CHAIN_CONFIG[130].blockExplorer },
-      },
-    }),
-    transport: http(process.env[CHAIN_CONFIG[130].rpcEnvKey]),
-  }),
-  8453: createWalletClient({
-    account,
-    chain: base,
-    transport: http(process.env[CHAIN_CONFIG[8453].rpcEnvKey]),
-  }),
-};
-
+// Handle API routes
 app.use(express.json());
-app.use(cors()); // Enable CORS for all routes
 
-// Add validation middleware to broadcast endpoint
-app.post('/broadcast', validateBroadcastRequest, async (req, res) => {
+// Prefix existing endpoints with /api
+app.post('/api/broadcast', validateBroadcastRequest, async (req, res) => {
   try {
     const request = req.body as BroadcastRequest;
     const chainId = parseInt(request.chainId) as SupportedChainId;
@@ -209,6 +119,7 @@ app.post('/broadcast', validateBroadcastRequest, async (req, res) => {
       theCompactService
     );
     if (!isValid) {
+      wsManager.broadcastFillRequest(JSON.stringify(request), false, 'Invalid signature');
       return res.status(401).json({
         error: 'Invalid signatures',
         message: 'Failed to verify sponsor and/or allocator signatures',
@@ -221,6 +132,7 @@ app.post('/broadcast', validateBroadcastRequest, async (req, res) => {
     );
 
     if (!SUPPORTED_CHAINS.includes(chainId)) {
+      wsManager.broadcastFillRequest(JSON.stringify(request), false, 'Unsupported chain');
       return res.status(400).json({ error: `Unsupported chain ID: ${chainId}` });
     }
 
@@ -230,6 +142,11 @@ app.post('/broadcast', validateBroadcastRequest, async (req, res) => {
     const MANDATE_EXPIRATION_BUFFER = 10n; // 10 seconds buffer for mandate
 
     if (BigInt(request.compact.expires) <= currentTimestamp + COMPACT_EXPIRATION_BUFFER) {
+      wsManager.broadcastFillRequest(
+        JSON.stringify(request),
+        false,
+        'Compact is expired or expires too soon'
+      );
       return res.status(400).json({
         error: 'Compact is expired or expires too soon',
         details: `Compact must have at least ${COMPACT_EXPIRATION_BUFFER} seconds until expiration`,
@@ -237,6 +154,11 @@ app.post('/broadcast', validateBroadcastRequest, async (req, res) => {
     }
 
     if (BigInt(request.compact.mandate.expires) <= currentTimestamp + MANDATE_EXPIRATION_BUFFER) {
+      wsManager.broadcastFillRequest(
+        JSON.stringify(request),
+        false,
+        'Mandate is expired or expires too soon'
+      );
       return res.status(400).json({
         error: 'Mandate is expired or expires too soon',
         details: `Mandate must have at least ${MANDATE_EXPIRATION_BUFFER} seconds until expiration`,
@@ -251,6 +173,11 @@ app.post('/broadcast', validateBroadcastRequest, async (req, res) => {
     );
 
     if (nonceConsumed) {
+      wsManager.broadcastFillRequest(
+        JSON.stringify(request),
+        false,
+        'Nonce has already been consumed'
+      );
       return res.status(400).json({ error: 'Nonce has already been consumed' });
     }
 
@@ -392,6 +319,7 @@ app.post('/broadcast', validateBroadcastRequest, async (req, res) => {
     const isProfitable = netProfitUSD > minProfitUSD;
 
     if (!isProfitable) {
+      wsManager.broadcastFillRequest(JSON.stringify(request), false, 'Transaction not profitable');
       return res.status(200).json({
         success: false,
         reason: 'Transaction not profitable',
@@ -418,6 +346,7 @@ app.post('/broadcast', validateBroadcastRequest, async (req, res) => {
     const hash = await walletClients[chainId].sendTransaction(tx);
 
     logger.info(`Transaction submitted: ${hash}`);
+    wsManager.broadcastFillRequest(JSON.stringify(request), true);
     return res.status(200).json({
       success: true,
       transactionHash: hash,
@@ -429,6 +358,11 @@ app.post('/broadcast', validateBroadcastRequest, async (req, res) => {
     });
   } catch (error) {
     logger.error('Error processing broadcast request:', error);
+    wsManager.broadcastFillRequest(
+      JSON.stringify(req.body),
+      false,
+      error instanceof Error ? error.message : 'Unknown error'
+    );
     return res.status(500).json({
       error: 'Internal server error',
       message: error instanceof Error ? error.message : 'Unknown error',
@@ -437,15 +371,141 @@ app.post('/broadcast', validateBroadcastRequest, async (req, res) => {
 });
 
 // Health check endpoint
-app.get('/health', (_req, res) => {
+app.get('/api/health', (_req, res) => {
   res.json({
     status: 'ok',
     timestamp: Math.floor(Date.now() / 1000),
   });
 });
 
-const port = process.env.PORT || 3000;
-app.listen(port, () => {
-  logger.info(`Server running on port ${port}`);
+// Serve index.html for all other routes to support client-side routing
+app.get('*', (req, res) => {
+  // Don't serve index.html for /ws or /api routes
+  if (req.path.startsWith('/ws') || req.path.startsWith('/api')) {
+    return res.status(404).json({ error: 'Not found' });
+  }
+  res.sendFile(join(__dirname, 'static', 'index.html'));
+});
+
+// Start price updates
+priceService.start();
+
+// Ensure price service is stopped when the process exits
+process.on('SIGTERM', () => {
+  priceService.stop();
+  process.exit(0);
+});
+
+process.on('SIGINT', () => {
+  priceService.stop();
+  process.exit(0);
+});
+
+if (!process.env.PRIVATE_KEY) {
+  throw new Error('PRIVATE_KEY environment variable is required');
+}
+
+// Initialize the account from private key
+const account = privateKeyToAccount(process.env.PRIVATE_KEY as `0x${string}`);
+
+// Configure clients with specific settings
+const commonConfig = {
+  pollingInterval: 4_000,
+  batch: {
+    multicall: true,
+  },
+  cacheTime: 4_000,
+} as const;
+
+// Initialize public clients for different chains
+const publicClients: Record<SupportedChainId, PublicClient> = {
+  1: createPublicClient<Transport, ViemChain>({
+    ...commonConfig,
+    chain: mainnet,
+    transport: http(process.env[CHAIN_CONFIG[1].rpcEnvKey] || ''),
+  }) as PublicClient,
+  10: createPublicClient<Transport, ViemChain>({
+    ...commonConfig,
+    chain: optimism,
+    transport: http(process.env[CHAIN_CONFIG[10].rpcEnvKey] || ''),
+  }) as PublicClient,
+  130: createPublicClient<Transport, ViemChain>({
+    ...commonConfig,
+    chain: defineChain({
+      id: 130,
+      name: CHAIN_CONFIG[130].name,
+      nativeCurrency: {
+        decimals: 18,
+        name: 'Ether',
+        symbol: CHAIN_CONFIG[130].nativeToken,
+      },
+      rpcUrls: {
+        default: { http: [process.env[CHAIN_CONFIG[130].rpcEnvKey] || ''] },
+        public: { http: [process.env[CHAIN_CONFIG[130].rpcEnvKey] || ''] },
+      },
+      blockExplorers: {
+        default: { name: 'UniScan', url: CHAIN_CONFIG[130].blockExplorer },
+      },
+    }),
+    transport: http(process.env[CHAIN_CONFIG[130].rpcEnvKey] || ''),
+  }) as PublicClient,
+  8453: createPublicClient<Transport, ViemChain>({
+    ...commonConfig,
+    chain: base,
+    transport: http(process.env[CHAIN_CONFIG[8453].rpcEnvKey] || ''),
+  }) as PublicClient,
+};
+
+// Initialize wallet clients for different chains
+const walletClients: Record<SupportedChainId, WalletClient<Transport, ViemChain>> = {
+  1: createWalletClient({
+    account,
+    chain: mainnet,
+    transport: http(process.env[CHAIN_CONFIG[1].rpcEnvKey]),
+  }),
+  10: createWalletClient({
+    account,
+    chain: optimism,
+    transport: http(process.env[CHAIN_CONFIG[10].rpcEnvKey]),
+  }),
+  130: createWalletClient({
+    account,
+    chain: defineChain({
+      id: 130,
+      name: CHAIN_CONFIG[130].name,
+      nativeCurrency: {
+        decimals: 18,
+        name: 'Ether',
+        symbol: CHAIN_CONFIG[130].nativeToken,
+      },
+      rpcUrls: {
+        default: { http: [process.env[CHAIN_CONFIG[130].rpcEnvKey] || ''] },
+        public: { http: [process.env[CHAIN_CONFIG[130].rpcEnvKey] || ''] },
+      },
+      blockExplorers: {
+        default: { name: 'UniScan', url: CHAIN_CONFIG[130].blockExplorer },
+      },
+    }),
+    transport: http(process.env[CHAIN_CONFIG[130].rpcEnvKey]),
+  }),
+  8453: createWalletClient({
+    account,
+    chain: base,
+    transport: http(process.env[CHAIN_CONFIG[8453].rpcEnvKey]),
+  }),
+};
+
+// Broadcast account info on startup
+wsManager.broadcastAccountUpdate(account.address);
+
+// Update price service to broadcast prices
+priceService.on('price_update', (chainId: number, price: number) => {
+  wsManager.broadcastEthPrice(chainId, price.toString());
+});
+
+// Start the server
+const PORT = process.env.PORT || 3000;
+server.listen(PORT, () => {
+  logger.info(`Server is running on port ${PORT}`);
   logger.info(`Server wallet address: ${account.address}`);
 });

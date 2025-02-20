@@ -1,13 +1,14 @@
 import { Logger } from '../../utils/logger.js';
 import { CoinGeckoProvider } from './CoinGeckoProvider.js';
 import { SUPPORTED_CHAINS, type SupportedChainId } from '../../config/constants.js';
+import EventEmitter from 'events';
 
 interface PriceData {
   price: number;
   lastUpdated: number;
 }
 
-export class PriceService {
+export class PriceService extends EventEmitter {
   private prices: Map<SupportedChainId, PriceData>;
   private logger: Logger;
   private provider: CoinGeckoProvider;
@@ -15,6 +16,7 @@ export class PriceService {
   private readonly UPDATE_INTERVAL = 10000; // 10 seconds
 
   constructor(apiKey?: string) {
+    super();
     this.prices = new Map();
     this.logger = new Logger('PriceService');
     this.provider = new CoinGeckoProvider(apiKey);
@@ -47,13 +49,13 @@ export class PriceService {
     if (!priceData) {
       throw new Error(`No price data available for chain ${chainId}`);
     }
-    
+
     // Check if price is stale (older than 30 seconds)
     const stalePriceThreshold = 30000; // 30 seconds
     if (Date.now() - priceData.lastUpdated > stalePriceThreshold) {
       this.logger.warn(`Price data for chain ${chainId} is stale`);
     }
-    
+
     return priceData.price;
   }
 
@@ -63,9 +65,12 @@ export class PriceService {
         const { price } = await this.provider.getEthPrice(chainId);
         this.prices.set(chainId, {
           price,
-          lastUpdated: Date.now()
+          lastUpdated: Date.now(),
         });
         this.logger.debug(`Updated ETH price for chain ${chainId}: $${price}`);
+
+        // Emit the price update
+        this.emit('price_update', chainId, price);
       } catch (error) {
         this.logger.error(`Failed to update price for chain ${chainId}:`, error);
         // Don't update the price if there's an error, keep using the old one

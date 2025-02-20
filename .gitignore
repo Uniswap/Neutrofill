@@ -5,13 +5,19 @@ dist/
 # Environment variables
 .env
 
-# IDE
-.vscode/
+# Build outputs
+src/server/static/
+src/client/dist/
+
+# IDE and editor files
 .idea/
+.vscode/
+*.swp
+*.swo
 
 # Logs
+coverage/
 *.log
-npm-debug.log*
 
 # OS
 .DS_Store
