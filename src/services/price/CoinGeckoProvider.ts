@@ -1,7 +1,13 @@
 import { Logger } from '../../utils/logger.js';
-import { CHAIN_CONFIG, type SupportedChainId } from '../../config/constants.js';
+import type { SupportedChainId } from '../../config/constants.js';
 
-const ETH_ADDRESS = '0x0000000000000000000000000000000000000000';
+// Map chain IDs to CoinGecko platform IDs and their native token IDs
+const CHAIN_TO_PLATFORM: Record<number, { platform: string; nativeToken: string }> = {
+  1: { platform: 'ethereum', nativeToken: 'ethereum' },
+  10: { platform: 'optimistic-ethereum', nativeToken: 'ethereum' },
+  130: { platform: 'unichain', nativeToken: 'ethereum' },
+  8453: { platform: 'base', nativeToken: 'ethereum' },
+};
 
 interface PriceData {
   price: number;
@@ -10,7 +16,7 @@ interface PriceData {
 }
 
 class CoinGeckoError extends Error {
-  constructor(message: string, public readonly cause?: unknown) {
+  constructor(message: string) {
     super(message);
     this.name = 'CoinGeckoError';
   }
@@ -31,13 +37,14 @@ export class CoinGeckoProvider {
       : 'https://api.coingecko.com/api/v3';
     this.headers = {
       accept: 'application/json',
-      ...(apiKey && { 'x-cg-pro-api-key': apiKey })
+      ...(apiKey && { 'x-cg-pro-api-key': apiKey }),
     };
   }
 
   private async makeRequest<T>(url: string, errorContext: string): Promise<T> {
     try {
-      const response = await fetch(url, { headers: this.headers });
+      // Use global fetch
+      const response = await globalThis.fetch(url, { headers: this.headers });
 
       if (!response.ok) {
         let errorMessage: string;
@@ -59,47 +66,62 @@ export class CoinGeckoProvider {
     } catch (error) {
       if (error instanceof CoinGeckoError) throw error;
       throw new CoinGeckoError(
-        `${errorContext}: ${error instanceof Error ? error.message : 'Unknown error'}`,
-        error
+        `${errorContext}: ${error instanceof Error ? error.message : 'Unknown error'}`
       );
     }
   }
 
-  private getCacheKey(chainId: SupportedChainId): string {
-    return `eth_price_${chainId}`;
+  private validateEthPriceResponse(
+    data: unknown,
+    nativeToken: string
+  ): asserts data is { [key: string]: { usd: number } } {
+    if (!data || typeof data !== 'object') {
+      throw new CoinGeckoError('Invalid native token price response format: not an object');
+    }
+
+    const priceObj = data as { [key: string]: { usd?: unknown } };
+    if (!priceObj[nativeToken]?.usd || typeof priceObj[nativeToken].usd !== 'number') {
+      throw new CoinGeckoError(
+        'Invalid native token price response format: missing or invalid price'
+      );
+    }
+  }
+
+  private getPlatformInfo(chainId: number): { platform: string; nativeToken: string } {
+    const info = CHAIN_TO_PLATFORM[chainId];
+    if (!info) {
+      throw new CoinGeckoError(`Unsupported chain ID: ${chainId}`);
+    }
+    return info;
   }
 
   async getEthPrice(chainId: SupportedChainId): Promise<PriceData> {
-    const config = CHAIN_CONFIG[chainId];
-    if (!config) {
-      throw new CoinGeckoError(`Unsupported chain ID: ${chainId}`);
-    }
-
-    const cacheKey = this.getCacheKey(chainId);
     const cached = this.cache.get(chainId);
-    
+
     if (cached && Date.now() - cached.timestamp < this.CACHE_TTL) {
       return cached.data;
     }
 
     try {
-      const url = `${this.baseUrl}/simple/price?ids=${config.coingeckoId}&vs_currencies=usd`;
-      const data = await this.makeRequest<Record<string, { usd: number }>>(
-        url,
-        'Failed to fetch ETH price'
-      );
+      const { nativeToken } = this.getPlatformInfo(chainId);
+      const url = `${this.baseUrl}/simple/price?ids=${nativeToken}&vs_currencies=usd`;
 
-      if (!data[config.coingeckoId]?.usd) {
-        throw new CoinGeckoError('Invalid price data format');
-      }
+      this.logger.info(`Fetching native token price for chain ${chainId}`);
+      this.logger.info(`CoinGecko request URL: ${url}`);
 
+      const data = await this.makeRequest<unknown>(url, 'Failed to fetch ETH price');
+      this.validateEthPriceResponse(data, nativeToken);
+
+      this.logger.info(`Received native token price data: ${JSON.stringify(data)}`);
+
+      const timestamp = Date.now();
       const priceData: PriceData = {
-        price: data[config.coingeckoId].usd,
-        timestamp: Date.now(),
-        source: 'coingecko'
+        price: data[nativeToken].usd,
+        timestamp,
+        source: 'coingecko',
       };
 
-      this.cache.set(chainId, { data: priceData, timestamp: Date.now() });
+      this.cache.set(chainId, { data: priceData, timestamp });
       return priceData;
     } catch (error) {
       this.logger.error('Failed to fetch ETH price:', error);

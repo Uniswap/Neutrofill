@@ -16,8 +16,8 @@ import { Logger } from './utils/logger.js';
 import { BroadcastRequest } from './types/broadcast.js';
 import { SUPPORTED_CHAINS, CHAIN_CONFIG, type SupportedChainId } from './config/constants.js';
 import { validateBroadcastRequest } from './validation/broadcast.js';
-import { derivePriorityFee, deriveClaimHash } from './utils';
-import { TheCompactService } from './services/TheCompactService';
+import { derivePriorityFee, deriveClaimHash } from './utils.js';
+import { TheCompactService } from './services/TheCompactService.js';
 import { verifyBroadcastRequest } from './validation/signature.js';
 
 config();
@@ -437,4 +437,5 @@ app.post('/broadcast', validateBroadcastRequest, async (req, res) => {
 const port = process.env.PORT || 3000;
 app.listen(port, () => {
   logger.info(`Server running on port ${port}`);
+  logger.info(`Server wallet address: ${account.address}`);
 });

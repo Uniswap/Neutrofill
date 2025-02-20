@@ -8,7 +8,7 @@ import {
 } from 'viem';
 import type { BroadcastRequest } from '../types/broadcast';
 import { TheCompactService } from '../services/TheCompactService';
-import { Logger } from '../utils/logger';
+import { Logger } from '../utils/logger.js';
 
 const logger = new Logger('SignatureValidation');
 
