@@ -28,7 +28,7 @@ import {
 } from "./config/constants.js";
 import { TheCompactService } from "./services/TheCompactService.js";
 import { PriceService } from "./services/price/PriceService.js";
-import { WebSocketManager } from "./services/websocket/WebSocketManager";
+import { WebSocketManager } from "./services/websocket/WebSocketManager.js";
 import type { BroadcastRequest } from "./types/broadcast.js";
 import { deriveClaimHash, derivePriorityFee } from "./utils.js";
 import { Logger } from "./utils/logger.js";
