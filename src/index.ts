@@ -11,6 +11,7 @@ import {
   type Chain as ViemChain,
   type Transport,
   defineChain,
+  encodeAbiParameters,
 } from 'viem';
 import { mainnet, optimism, base } from 'viem/chains';
 import { privateKeyToAccount } from 'viem/accounts';
@@ -18,6 +19,7 @@ import { PriceService } from './services/price/PriceService.js';
 import { Logger } from './utils/logger.js';
 import { BroadcastRequest } from './types/broadcast.js';
 import { SUPPORTED_CHAINS, CHAIN_CONFIG, type SupportedChainId } from './config/constants.js';
+import { validateBroadcastRequest } from './validation/broadcast.js';
 
 config();
 
@@ -123,7 +125,8 @@ const walletClients: Record<SupportedChainId, WalletClient<Transport, ViemChain>
 
 app.use(express.json());
 
-app.post('/broadcast', async (req, res) => {
+// Add validation middleware to broadcast endpoint
+app.post('/broadcast', validateBroadcastRequest, async (req, res) => {
   try {
     const request = req.body as BroadcastRequest;
     const chainId = parseInt(request.chainId) as SupportedChainId;
@@ -180,7 +183,34 @@ app.post('/broadcast', async (req, res) => {
     // TODO: Add transaction simulation here
 
     // Submit the transaction
-    // TODO: Build the actual transaction data based on the compact format
+    // Encode the transaction data using the compact format and signatures
+    const encodedData = encodeAbiParameters(
+      [
+        { name: 'arbiter', type: 'address' },
+        { name: 'sponsor', type: 'address' },
+        { name: 'nonce', type: 'uint256' },
+        { name: 'expires', type: 'uint256' },
+        { name: 'id', type: 'bytes32' },
+        { name: 'amount', type: 'uint256' },
+        { name: 'sponsorSignature', type: 'bytes' },
+        { name: 'allocatorSignature', type: 'bytes' },
+      ],
+      [
+        request.compact.arbiter as `0x${string}`,
+        request.compact.sponsor as `0x${string}`,
+        BigInt(request.compact.nonce),
+        BigInt(request.compact.expires),
+        request.compact.id as `0x${string}`,
+        BigInt(request.compact.amount),
+        (request.sponsorSignature || '0x' + '0'.repeat(128)) as `0x${string}`,
+        request.allocatorSignature as `0x${string}`,
+      ]
+    );
+
+    // Function selector for fill(...)
+    const functionSelector = '0x0f67c771';
+    const data = functionSelector + encodedData.slice(2);
+
     const tx = {
       to: request.compact.mandate.tribunal as `0x${string}`,
       value: BigInt(request.compact.amount),
@@ -188,8 +218,7 @@ app.post('/broadcast', async (req, res) => {
       maxPriorityFeePerGas: priorityFee,
       gas: estimatedGasLimit,
       account,
-      chain: null, // Required by viem but not used since chain is specified in the wallet client
-      // data: will be constructed based on the compact format
+      data: data as `0x${string}`,
     };
 
     const hash = await walletClients[chainId].sendTransaction(tx);

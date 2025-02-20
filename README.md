@@ -51,22 +51,51 @@ Submit a transaction for potential execution.
 Request body:
 ```json
 {
-  "chainId": 1,
-  "to": "0x...",
-  "data": "0x...",
-  "value": "0",
-  "gasLimit": "21000",
-  "maxFeePerGas": "1000000000",
-  "maxPriorityFeePerGas": "100000000"
+    "chainId": "1",
+    "compact": {
+        "arbiter": "0x1234567890123456789012345678901234567890",
+        "sponsor": "0x1234567890123456789012345678901234567890",
+        "nonce": "0x1234567890123456789012345678901234567890123456789012345678901234",
+        "expires": "1000000",
+        "id": "23499701752147396106288076033874150844871292959348239827687418423535067463557",
+        "amount": "1000000000000000000",
+        "mandate": {
+            "chainId": 1,
+            "tribunal": "0x1234567890123456789012345678901234567890",
+            "recipient": "0x1234567890123456789012345678901234567890",
+            "expires": "1000000",
+            "token": "0x1234567890123456789012345678901234567890",
+            "minimumAmount": "1000000000000000000",
+            "baselinePriorityFee": "1000000000",
+            "scalingFactor": "1000000000",
+            "salt": "0x1234567890123456789012345678901234567890123456789012345678901234"
+        }
+    },
+    "sponsorSignature": null,
+    "allocatorSignature": "0x1234567890123456789012345678901234567890123456789012345678901234123456789012345678901234567890123456789012345678901234567890123456",
+    "context": {
+        "dispensation": "1000000000000000000",
+        "dispensationUSD": "$1000.00",
+        "spotOutputAmount": "1000000000000000000",
+        "quoteOutputAmountDirect": "1000000000000000000",
+        "quoteOutputAmountNet": "1000000000000000000",
+        "witnessTypeString": "witness",
+        "witnessHash": "0x1234567890123456789012345678901234567890123456789012345678901234"
+    }
 }
 ```
 
 Response:
 ```json
 {
-  "success": true,
-  "transactionHash": "0x...",
-  "gasCostUsd": 1.23
+    "success": true,
+    "transactionHash": "0x...",
+    "details": {
+        "dispensationUSD": 1000.00,
+        "gasCostUSD": 1.23,
+        "netProfitUSD": 998.77,
+        "minProfitUSD": 0.5
+    }
 }
 ```
 
