@@ -50,14 +50,7 @@ if (!process.env.PRIVATE_KEY) {
 }
 const account = privateKeyToAccount(process.env.PRIVATE_KEY as `0x${string}`);
 
-const indexerService = new IndexerService(
-  process.env.COMPACT_INDEXER ||
-    "https://the-compact-indexer-2.ponder-dev.com/",
-  account.address
-);
-const wsManager = new WebSocketManager(server);
-
-// Configure clients with specific settings
+// Initialize clients first
 const commonConfig = {
   pollingInterval: 4_000,
   batch: {
@@ -66,7 +59,6 @@ const commonConfig = {
   cacheTime: 4_000,
 } as const;
 
-// Initialize public clients for different chains
 const publicClients: Record<SupportedChainId, PublicClient> = {
   1: createPublicClient<Transport, ViemChain>({
     ...commonConfig,
@@ -105,13 +97,6 @@ const publicClients: Record<SupportedChainId, PublicClient> = {
   }) as PublicClient,
 };
 
-// Initialize token balance service
-const tokenBalanceService = new TokenBalanceService(
-  account.address,
-  publicClients
-);
-
-// Initialize wallet clients for different chains
 const walletClients: Record<
   SupportedChainId,
   WalletClient<Transport, ViemChain>
@@ -153,13 +138,23 @@ const walletClients: Record<
   }),
 };
 
-// Initialize TheCompactService with chain-specific public clients for nonce validation
-const theCompactService = new TheCompactService({
-  1: publicClients[1],
-  10: publicClients[10],
-  130: publicClients[130],
-  8453: publicClients[8453],
-});
+// Then initialize services
+const indexerService = new IndexerService(
+  process.env.COMPACT_INDEXER || "https://the-compact-indexer-2.ponder-dev.com",
+  account.address,
+  publicClients,
+  walletClients
+);
+const wsManager = new WebSocketManager(server);
+
+// Initialize token balance service
+const tokenBalanceService = new TokenBalanceService(
+  account.address,
+  publicClients
+);
+
+// Initialize TheCompactService
+const theCompactService = new TheCompactService(publicClients, walletClients);
 
 // Supported addresses for arbiters and tribunals per chain
 const SUPPORTED_ARBITER_ADDRESSES: Record<SupportedChainId, string> = {

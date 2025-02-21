@@ -1,5 +1,8 @@
-import { Logger } from "../../utils/logger.js";
 import type { Address } from "viem";
+import type { PublicClient, WalletClient } from "viem";
+import type { SupportedChainId } from "../../config/constants.js";
+import { Logger } from "../../utils/logger.js";
+import { TheCompactService } from "../TheCompactService.js";
 
 const logger = new Logger("IndexerService");
 
@@ -22,38 +25,94 @@ interface IndexerResponse {
   };
 }
 
+// Track locks we've already processed or are processing
+interface LockStatus {
+  status: "Disabled" | "Pending" | "Enabled";
+  availableAt?: number;
+  enableTxSubmitted?: boolean;
+}
+
 export class IndexerService {
   private readonly indexerUrl: string;
   private readonly account: Address;
+  private readonly compactService: TheCompactService;
   private intervalId?: NodeJS.Timeout;
+  private processedLocks: Map<string, LockStatus> = new Map();
 
-  constructor(indexerUrl: string, account: Address) {
+  constructor(
+    indexerUrl: string,
+    account: Address,
+    publicClients: { [chainId: number]: PublicClient },
+    walletClients: { [chainId: number]: WalletClient }
+  ) {
     this.indexerUrl = indexerUrl;
     this.account = account;
+    this.compactService = new TheCompactService(publicClients, walletClients);
   }
 
-  public start(): void {
-    if (this.intervalId) {
-      logger.warn("IndexerService already running");
+  private getLockKey(chainId: string, lockId: string): string {
+    return `${chainId}:${lockId}`;
+  }
+
+  private async checkAndEnableForcedWithdrawal(
+    chainId: string,
+    lockId: string
+  ): Promise<void> {
+    const lockKey = this.getLockKey(chainId, lockId);
+    const existingStatus = this.processedLocks.get(lockKey);
+
+    // Skip if we've already submitted a transaction or if withdrawals are already pending/enabled
+    if (
+      existingStatus?.enableTxSubmitted ||
+      existingStatus?.status !== "Disabled"
+    ) {
       return;
     }
 
-    // Poll immediately on start
-    void this.pollIndexer();
+    try {
+      // Check current status
+      const { status, availableAt } =
+        await this.compactService.getForcedWithdrawalStatus(
+          Number(chainId),
+          this.account,
+          BigInt(lockId)
+        );
 
-    // Then poll every 3 seconds
-    this.intervalId = setInterval(() => {
-      void this.pollIndexer();
-    }, 3000);
+      // Update our tracking
+      this.processedLocks.set(lockKey, {
+        status,
+        availableAt,
+      });
 
-    logger.info("IndexerService started");
-  }
+      // If disabled, enable forced withdrawal
+      if (status === "Disabled") {
+        logger.info(
+          `Enabling forced withdrawal for lock ${lockId} on chain ${chainId}`
+        );
 
-  public stop(): void {
-    if (this.intervalId) {
-      clearInterval(this.intervalId);
-      this.intervalId = undefined;
-      logger.info("IndexerService stopped");
+        const hash = await this.compactService.enableForcedWithdrawal(
+          Number(chainId),
+          BigInt(lockId)
+        );
+
+        // Mark that we've submitted a transaction
+        this.processedLocks.set(lockKey, {
+          status: "Disabled",
+          enableTxSubmitted: true,
+        });
+      } else {
+        logger.info(
+          `Forced withdrawal already ${status.toLowerCase()} for lock ${lockId} on chain ${chainId}`,
+          availableAt > 0
+            ? { availableAt: new Date(availableAt * 1000).toISOString() }
+            : {}
+        );
+      }
+    } catch (error) {
+      logger.error(
+        `Error checking/enabling forced withdrawal for lock ${lockId} on chain ${chainId}:`,
+        error
+      );
     }
   }
 
@@ -81,8 +140,6 @@ export class IndexerService {
       };
 
       logger.info(`Polling indexer at ${url}`);
-      logger.debug("Query:", query);
-      logger.debug("Variables:", variables);
 
       const response = await fetch(url, {
         method: "POST",
@@ -100,7 +157,6 @@ export class IndexerService {
       }
 
       const data = (await response.json()) as IndexerResponse;
-      logger.debug("Response:", data);
 
       if (!data.data.account) {
         logger.info(`No account found for address ${this.account}`);
@@ -117,6 +173,12 @@ export class IndexerService {
             balance: item.balance,
             lockId: item.resourceLock.lockId,
           });
+
+          // Check and potentially enable forced withdrawal
+          await this.checkAndEnableForcedWithdrawal(
+            item.chainId,
+            item.resourceLock.lockId
+          );
         }
       }
     } catch (error) {
@@ -125,6 +187,31 @@ export class IndexerService {
         logger.error("URL:", `${this.indexerUrl}/graphql`);
         logger.error("Account:", this.account);
       }
+    }
+  }
+
+  public start(): void {
+    if (this.intervalId) {
+      logger.warn("IndexerService already running");
+      return;
+    }
+
+    // Poll immediately on start
+    void this.pollIndexer();
+
+    // Then poll every 3 seconds
+    this.intervalId = setInterval(() => {
+      void this.pollIndexer();
+    }, 3000);
+
+    logger.info("IndexerService started");
+  }
+
+  public stop(): void {
+    if (this.intervalId) {
+      clearInterval(this.intervalId);
+      this.intervalId = undefined;
+      logger.info("IndexerService stopped");
     }
   }
 }
