@@ -76,7 +76,7 @@ export async function checkAndSetTokenApprovals(
           account,
           chain: null,
           maxFeePerGas: (baseFee * 120n) / 100n,
-          maxPriorityFeePerGas: 0n,
+          maxPriorityFeePerGas: 1n,
         });
 
         logger.info(
