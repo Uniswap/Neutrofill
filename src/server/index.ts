@@ -29,6 +29,7 @@ import { Logger } from "./utils/logger.js";
 import { validateBroadcastRequestMiddleware } from "./validation/broadcast.js";
 import { verifyBroadcastRequest } from "./validation/signature.js";
 import { processBroadcastTransaction } from "./helpers/broadcast.js";
+import { checkAndSetTokenApprovals } from "./helpers/approvals.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -166,6 +167,17 @@ const SUPPORTED_TRIBUNAL_ADDRESSES = SUPPORTED_ARBITER_ADDRESSES;
 // Start services
 priceService.start();
 tokenBalanceService.start();
+
+// Check and set token approvals for supported chains
+const chainsToApprove = [10, 130, 8453] as const; // Optimism, Unichain, Base
+for (const chainId of chainsToApprove) {
+  await checkAndSetTokenApprovals(
+    chainId,
+    SUPPORTED_TRIBUNAL_ADDRESSES[chainId] as `0x${string}`,
+    publicClients[chainId],
+    walletClients[chainId]
+  );
+}
 
 // Set up service event handlers
 priceService.on("price_update", (chainId: number, price: number) => {
