@@ -10,15 +10,8 @@ import {
   type Chain as ViemChain,
   type WalletClient,
   defineChain,
-  encodeFunctionData,
 } from "viem";
-import {
-  http,
-  createPublicClient,
-  createWalletClient,
-  formatEther,
-  parseEther,
-} from "viem";
+import { http, createPublicClient, createWalletClient } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 import { base, mainnet, optimism } from "viem/chains";
 import {
@@ -31,11 +24,11 @@ import { PriceService } from "./services/price/PriceService.js";
 import { TokenBalanceService } from "./services/balance/TokenBalanceService.js";
 import { WebSocketManager } from "./services/websocket/WebSocketManager.js";
 import type { BroadcastRequest } from "./types/broadcast.js";
-import { deriveClaimHash, derivePriorityFee } from "./utils.js";
+import { deriveClaimHash } from "./utils.js";
 import { Logger } from "./utils/logger.js";
 import { validateBroadcastRequestMiddleware } from "./validation/broadcast.js";
 import { verifyBroadcastRequest } from "./validation/signature.js";
-import { processBroadcastTransaction } from "./helpers/broadcast";
+import { processBroadcastTransaction } from "./helpers/broadcast.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);

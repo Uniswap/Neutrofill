@@ -1,10 +1,17 @@
 import type { BroadcastRequest } from "../validation/broadcast.js";
 import type { PriceService } from "../services/price/PriceService.js";
 import { derivePriorityFee } from "../utils.js";
-import { encodeFunctionData, parseEther, formatEther, type Hash } from "viem";
+import {
+  encodeFunctionData,
+  parseEther,
+  formatEther,
+  type Hash,
+  createPublicClient,
+  http,
+} from "viem";
 import { Logger } from "../utils/logger.js";
-import type { PublicClient, WalletClient, Chain } from "viem";
-import type { SupportedChainId } from "../config/constants.js";
+import type { PublicClient, WalletClient, Chain, Transport } from "viem";
+import { type SupportedChainId, CHAIN_CONFIG } from "../config/constants.js";
 
 const logger = new Logger("BroadcastHelper");
 
@@ -28,43 +35,69 @@ export async function processBroadcastTransaction(
   walletClient: WalletClient,
   address: `0x${string}`
 ): Promise<ProcessedBroadcastResult> {
+  // Get the chain object and config for the mandate's chain
+  const mandateChainId = Number(
+    request.compact.mandate.chainId
+  ) as SupportedChainId;
+  const mandateChainConfig = CHAIN_CONFIG[mandateChainId];
+  logger.info(`Evaluating fill against chainId ${mandateChainId}`);
+
+  // Use existing chain from wallet or create new one from config
+  const chain =
+    walletClient.chain?.id === mandateChainId
+      ? walletClient.chain
+      : ({
+          id: mandateChainId,
+          name: mandateChainConfig.name,
+          network: mandateChainConfig.name.toLowerCase(),
+          nativeCurrency: {
+            name: mandateChainConfig.nativeToken,
+            symbol: mandateChainConfig.nativeToken,
+            decimals: 18,
+          },
+          rpcUrls: {
+            default: {
+              http: [process.env[mandateChainConfig.rpcEnvKey] || ""],
+            },
+            public: { http: [process.env[mandateChainConfig.rpcEnvKey] || ""] },
+          },
+        } as Chain);
+
   // Get current ETH price for the chain from memory
   const ethPrice = priceService.getPrice(chainId);
   logger.info(`Current ETH price on chain ${chainId}: $${ethPrice}`);
 
-  // Extract the dispensation amount in USD from the request
+  // Extract the dispensation amount in USD from the request and add 25% buffer
   const dispensationUSD = Number.parseFloat(
     request.context.dispensationUSD.replace("$", "")
   );
+  const bufferedDispensation =
+    (BigInt(request.context.dispensation) * 125n) / 100n;
 
-  // Calculate gas cost
+  // Calculate simulation values
+  const minimumAmount = BigInt(request.compact.mandate.minimumAmount);
+  const simulationSettlement = (minimumAmount * 101n) / 100n;
   const baselinePriorityFee = BigInt(
     request.compact.mandate.baselinePriorityFee
   );
   const scalingFactor = BigInt(request.compact.mandate.scalingFactor);
-  const minimumAmount = BigInt(request.compact.mandate.minimumAmount);
-  const desiredSettlement = BigInt(request.context.spotOutputAmount);
 
-  // Calculate priority fee based on desired settlement
-  const priorityFee = derivePriorityFee(
-    desiredSettlement,
+  // Calculate simulation priority fee
+  const simulationPriorityFee = derivePriorityFee(
+    simulationSettlement,
     minimumAmount,
     baselinePriorityFee,
     scalingFactor
   );
 
-  // Add 25% buffer to dispensation for cross-chain message fee
-  const bufferedDispensation =
-    (BigInt(request.context.dispensation) * 125n) / 100n;
-
-  // Calculate total value to send (settlement + buffered dispensation for native token, just buffered dispensation for ERC20)
-  const value =
+  // Calculate simulation value
+  const simulationValue =
     request.compact.mandate.token ===
     "0x0000000000000000000000000000000000000000"
-      ? BigInt(request.context.spotOutputAmount) + bufferedDispensation
+      ? simulationSettlement + bufferedDispensation
       : bufferedDispensation;
 
-  // Encode function data with proper ABI
+  // Encode simulation data with proper ABI
   const data = encodeFunctionData({
     abi: [
       {
@@ -146,83 +179,199 @@ export async function processBroadcastTransaction(
     ],
   });
 
-  // Estimate gas and add 25% buffer
-  const estimatedGas = await publicClient.estimateGas({
-    to: request.compact.mandate.tribunal as `0x${string}`,
-    value,
-    data,
-    maxFeePerGas: priorityFee + BigInt(300000),
-    maxPriorityFeePerGas: priorityFee,
-    account: address,
-  });
+  // Use existing client or create new one with mandate chain
+  const chainPublicClient =
+    publicClient.chain?.id === mandateChainId
+      ? publicClient
+      : (createPublicClient({
+          chain,
+          transport: http(chain.rpcUrls.default.http[0]),
+        }) as PublicClient<Transport, Chain>);
 
-  const gasWithBuffer = (estimatedGas * 125n) / 100n;
-
-  // Get current base fee from latest block and calculate max fee
-  const block = await publicClient.getBlock();
-  const baseFee = block.baseFeePerGas ?? parseEther("0.00000005"); // 50 gwei default if baseFeePerGas is null
-  const maxFeePerGas = priorityFee + (baseFee * 120n) / 100n; // Base fee + 20% buffer
-
-  // Calculate total gas cost
-  const totalGasCost = maxFeePerGas * gasWithBuffer;
-  const gasCostEth = Number(formatEther(totalGasCost));
-  const gasCostUSD = gasCostEth * ethPrice;
-
-  // Calculate net profit
-  const netProfitUSD = dispensationUSD - gasCostUSD;
-  const minProfitUSD = 0.5; // Minimum profit threshold in USD
-
-  const isProfitable = netProfitUSD > minProfitUSD;
-
-  if (!isProfitable) {
+  // Get current base fee from latest block using mandate chain
+  const block = await chainPublicClient.getBlock();
+  const baseFee = block.baseFeePerGas;
+  if (!baseFee) {
     return {
       success: false,
-      reason: "Transaction not profitable",
+      reason: "Could not get base fee from latest block",
       details: {
         dispensationUSD,
-        gasCostUSD,
-        netProfitUSD,
-        minProfitUSD,
       },
     };
   }
 
-  // Submit the transaction using the chain from the mandate
-  const mandateChainId = Number(request.compact.mandate.chainId);
-  const chain =
-    walletClient.chain?.id === mandateChainId
-      ? walletClient.chain
-      : ({
-          id: mandateChainId,
-          name: `Chain ${mandateChainId}`,
-          network: `chain-${mandateChainId}`,
-          nativeCurrency: { name: "Ether", symbol: "ETH", decimals: 18 },
-          rpcUrls: walletClient.chain?.rpcUrls ?? {
-            default: { http: [""] },
-            public: { http: [""] },
-          },
-        } as Chain);
+  // Estimate gas using simulation values and add 25% buffer
+  logger.info("Performing initial simulation to get gas estimate");
+  const estimatedGas = await chainPublicClient.estimateGas({
+    to: request.compact.mandate.tribunal as `0x${string}`,
+    value: simulationValue,
+    data,
+    maxFeePerGas: simulationPriorityFee + (baseFee * 120n) / 100n,
+    maxPriorityFeePerGas: simulationPriorityFee,
+    account: address,
+  });
 
+  const gasWithBuffer = (estimatedGas * 125n) / 100n;
+  logger.info(
+    `Got gas estimate: ${estimatedGas} (${gasWithBuffer} with buffer)`
+  );
+
+  // Calculate max fee and total gas cost
+  const maxFeePerGas = simulationPriorityFee + (baseFee * 120n) / 100n; // Base fee + 20% buffer
+  const totalGasCost = maxFeePerGas * gasWithBuffer;
+  const gasCostEth = Number(formatEther(totalGasCost));
+  const gasCostUSD = gasCostEth * ethPrice;
+
+  // Calculate execution costs
+  const executionCostWei = totalGasCost + bufferedDispensation;
+  const executionCostUSD = gasCostUSD + dispensationUSD;
+
+  // Get claim token from compact ID and check if it's ETH/WETH across all chains
+  const claimTokenHex = BigInt(request.compact.id).toString(16).slice(-40);
+  const claimToken = `0x${claimTokenHex}`.toLowerCase() as `0x${string}`;
+
+  // Check if token is ETH/WETH in any supported chain
+  const isETHorWETH = Object.values(CHAIN_CONFIG).some(
+    (chainConfig) =>
+      claimToken === chainConfig.tokens.ETH.address.toLowerCase() ||
+      claimToken === chainConfig.tokens.WETH.address.toLowerCase()
+  );
+
+  // Calculate claim amount less execution costs
+  let claimAmountLessExecutionCostsWei: bigint;
+  let claimAmountLessExecutionCostsUSD: number;
+  if (isETHorWETH) {
+    claimAmountLessExecutionCostsWei =
+      BigInt(request.compact.amount) - executionCostWei;
+    claimAmountLessExecutionCostsUSD =
+      Number(formatEther(claimAmountLessExecutionCostsWei)) * ethPrice;
+  } else {
+    // Assume USDC with 6 decimals
+    claimAmountLessExecutionCostsUSD =
+      Number(request.compact.amount) / 1e6 - executionCostUSD;
+    claimAmountLessExecutionCostsWei = parseEther(
+      (claimAmountLessExecutionCostsUSD / ethPrice).toString()
+    );
+  }
+
+  // Calculate settlement amount based on mandate token (ETH/WETH check)
+  const mandateToken =
+    request.compact.mandate.token.toLowerCase() as `0x${string}`;
+  const isSettlementTokenETHorWETH = Object.values(CHAIN_CONFIG).some(
+    (chainConfig) =>
+      mandateToken === chainConfig.tokens.ETH.address.toLowerCase() ||
+      mandateToken === chainConfig.tokens.WETH.address.toLowerCase()
+  );
+
+  const settlementAmount = isSettlementTokenETHorWETH
+    ? claimAmountLessExecutionCostsWei
+    : BigInt(Math.floor(claimAmountLessExecutionCostsUSD * 1e6)); // Scale up USDC amount
+
+  logger.info(
+    `Settlement amount: ${settlementAmount} (minimum: ${minimumAmount})`
+  );
+
+  // Check if profitable (settlement amount > minimum amount)
+  if (settlementAmount <= minimumAmount) {
+    return {
+      success: false,
+      reason: "Fill estimated to be unprofitable after execution costs",
+      details: {
+        dispensationUSD,
+        gasCostUSD,
+      },
+    };
+  }
+
+  // Calculate final priority fee based on actual settlement amount
+  const priorityFee = derivePriorityFee(
+    settlementAmount,
+    minimumAmount,
+    baselinePriorityFee,
+    scalingFactor
+  );
+
+  // Calculate final value based on mandate token (using chain-specific ETH address)
+  const value =
+    mandateToken === mandateChainConfig.tokens.ETH.address.toLowerCase()
+      ? settlementAmount + bufferedDispensation
+      : bufferedDispensation;
+
+  // Do final gas estimation with actual values
+  const finalEstimatedGas = await chainPublicClient.estimateGas({
+    to: request.compact.mandate.tribunal as `0x${string}`,
+    value,
+    data,
+    maxFeePerGas: priorityFee + (baseFee * 120n) / 100n,
+    maxPriorityFeePerGas: priorityFee,
+    account: address,
+  });
+
+  const finalGasWithBuffer = (finalEstimatedGas * 125n) / 100n;
+
+  logger.info(
+    `Got final gas estimate: ${finalEstimatedGas} (${finalGasWithBuffer} with buffer)`
+  );
+
+  // Check if we have enough ETH for value + gas
+  const accountBalance = await chainPublicClient.getBalance({ address });
+  const requiredBalance =
+    value + (priorityFee + (baseFee * 120n) / 100n) * finalGasWithBuffer;
+
+  if (accountBalance < requiredBalance) {
+    const shortageWei = requiredBalance - accountBalance;
+    const shortageEth = Number(formatEther(shortageWei));
+    return {
+      success: false,
+      reason: `Insufficient ETH balance. Need ${formatEther(requiredBalance)} ETH but only have ${formatEther(accountBalance)} ETH (short ${shortageEth.toFixed(6)} ETH)`,
+      details: {
+        dispensationUSD,
+        gasCostUSD,
+      },
+    };
+  }
+
+  logger.info(
+    `account balance ${accountBalance} exceeds required balance of ${requiredBalance}. Submitting transaction!`
+  );
+
+  // Submit transaction
   const hash = await walletClient.sendTransaction({
     to: request.compact.mandate.tribunal as `0x${string}`,
     value,
-    maxFeePerGas,
+    maxFeePerGas: priorityFee + (baseFee * 120n) / 100n,
     maxPriorityFeePerGas: priorityFee,
-    gas: gasWithBuffer,
+    gas: finalGasWithBuffer,
     data: data as `0x${string}`,
     account: address,
     chain,
   });
 
-  logger.info(`Transaction submitted: ${hash}`);
+  // Calculate final costs and profit
+  const finalGasCostWei =
+    (priorityFee + (baseFee * 120n) / 100n) * finalGasWithBuffer;
+  const finalGasCostEth = Number(formatEther(finalGasCostWei));
+  const finalGasCostUSD = finalGasCostEth * ethPrice;
+
+  logger.info(
+    `Transaction submitted: ${hash} (${mandateChainConfig.blockExplorer}/tx/${hash})`
+  );
+  logger.info(
+    `Settlement amount: ${settlementAmount} (minimum: ${minimumAmount})`
+  );
+  logger.info(
+    `Final gas cost: $${finalGasCostUSD.toFixed(2)} (${formatEther(finalGasCostWei)} ETH)`
+  );
 
   return {
     success: true,
     hash,
     details: {
       dispensationUSD,
-      gasCostUSD,
-      netProfitUSD,
+      gasCostUSD: finalGasCostUSD,
+      netProfitUSD: 0,
+      minProfitUSD: 0,
     },
   };
 }

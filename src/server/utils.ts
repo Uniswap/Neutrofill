@@ -1,5 +1,5 @@
 import { encodeAbiParameters, keccak256, toBytes } from "viem";
-import type { Compact } from "./types/broadcast";
+import type { Compact } from "./types/broadcast.js";
 
 /**
  * Calculates the required priority fee to achieve a desired settlement amount
