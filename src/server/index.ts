@@ -35,6 +35,7 @@ import { deriveClaimHash, derivePriorityFee } from "./utils.js";
 import { Logger } from "./utils/logger.js";
 import { validateBroadcastRequestMiddleware } from "./validation/broadcast.js";
 import { verifyBroadcastRequest } from "./validation/signature.js";
+import { processBroadcastTransaction } from "./helpers/broadcast";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -320,193 +321,29 @@ app.post("/broadcast", validateBroadcastRequestMiddleware, async (req, res) => {
       return res.status(400).json({ error: "Nonce has already been consumed" });
     }
 
-    // Get current ETH price for the chain from memory
-    const ethPrice = priceService.getPrice(chainId);
-    logger.info(`Current ETH price on chain ${chainId}: $${ethPrice}`);
-
-    // Extract the dispensation amount in USD from the request
-    const dispensationUSD = Number.parseFloat(
-      request.context.dispensationUSD.replace("$", "")
+    // Process the broadcast transaction
+    const result = await processBroadcastTransaction(
+      { ...request, chainId: Number(request.chainId) },
+      chainId,
+      priceService,
+      publicClients[chainId],
+      walletClients[chainId],
+      account.address
     );
 
-    // Calculate gas cost
-    const baselinePriorityFee = BigInt(
-      request.compact.mandate.baselinePriorityFee
-    );
-    const scalingFactor = BigInt(request.compact.mandate.scalingFactor);
-    const minimumAmount = BigInt(request.compact.mandate.minimumAmount);
-    const desiredSettlement = BigInt(request.context.spotOutputAmount);
-
-    // Calculate priority fee based on desired settlement
-    const priorityFee = derivePriorityFee(
-      desiredSettlement,
-      minimumAmount,
-      baselinePriorityFee,
-      scalingFactor
+    // Handle the result
+    wsManager.broadcastFillRequest(
+      JSON.stringify(request),
+      result.success,
+      result.success ? undefined : result.reason
     );
 
-    // Add 25% buffer to dispensation for cross-chain message fee
-    const bufferedDispensation =
-      (BigInt(request.context.dispensation) * 125n) / 100n;
-
-    // Calculate total value to send (settlement + buffered dispensation for native token, just buffered dispensation for ERC20)
-    const value =
-      request.compact.mandate.token ===
-      "0x0000000000000000000000000000000000000000"
-        ? BigInt(request.context.spotOutputAmount) + bufferedDispensation
-        : bufferedDispensation;
-
-    // Encode function data with proper ABI
-    const data = encodeFunctionData({
-      abi: [
-        {
-          name: "fill",
-          type: "function",
-          stateMutability: "payable",
-          inputs: [
-            {
-              name: "claim",
-              type: "tuple",
-              components: [
-                { name: "chainId", type: "uint256" },
-                {
-                  name: "compact",
-                  type: "tuple",
-                  components: [
-                    { name: "arbiter", type: "address" },
-                    { name: "sponsor", type: "address" },
-                    { name: "nonce", type: "uint256" },
-                    { name: "expires", type: "uint256" },
-                    { name: "id", type: "uint256" },
-                    { name: "amount", type: "uint256" },
-                  ],
-                },
-                { name: "sponsorSignature", type: "bytes" },
-                { name: "allocatorSignature", type: "bytes" },
-              ],
-            },
-            {
-              name: "mandate",
-              type: "tuple",
-              components: [
-                { name: "recipient", type: "address" },
-                { name: "expires", type: "uint256" },
-                { name: "token", type: "address" },
-                { name: "minimumAmount", type: "uint256" },
-                { name: "baselinePriorityFee", type: "uint256" },
-                { name: "scalingFactor", type: "uint256" },
-                { name: "salt", type: "bytes32" },
-              ],
-            },
-            { name: "claimant", type: "address" },
-          ],
-          outputs: [
-            { name: "mandateHash", type: "bytes32" },
-            { name: "settlementAmount", type: "uint256" },
-            { name: "claimAmount", type: "uint256" },
-          ],
-        },
-      ],
-      functionName: "fill",
-      args: [
-        {
-          chainId: BigInt(request.chainId),
-          compact: {
-            arbiter: request.compact.arbiter as `0x${string}`,
-            sponsor: request.compact.sponsor as `0x${string}`,
-            nonce: BigInt(request.compact.nonce),
-            expires: BigInt(request.compact.expires),
-            id: BigInt(request.compact.id),
-            amount: BigInt(request.compact.amount),
-          },
-          sponsorSignature: (request.sponsorSignature ||
-            `0x${"0".repeat(128)}`) as `0x${string}`,
-          allocatorSignature: request.allocatorSignature as `0x${string}`,
-        },
-        {
-          recipient: request.compact.mandate.recipient as `0x${string}`,
-          expires: BigInt(request.compact.mandate.expires),
-          token: request.compact.mandate.token as `0x${string}`,
-          minimumAmount: BigInt(request.compact.mandate.minimumAmount),
-          baselinePriorityFee: BigInt(
-            request.compact.mandate.baselinePriorityFee
-          ),
-          scalingFactor: BigInt(request.compact.mandate.scalingFactor),
-          salt: request.compact.mandate.salt as `0x${string}`,
-        },
-        account.address,
-      ],
-    });
-
-    // Estimate gas and add 25% buffer
-    const estimatedGas = await publicClients[chainId].estimateGas({
-      to: request.compact.mandate.tribunal as `0x${string}`,
-      value,
-      data,
-      maxFeePerGas: priorityFee + BigInt(300000),
-      maxPriorityFeePerGas: priorityFee,
-      account,
-    });
-
-    const gasWithBuffer = (estimatedGas * 125n) / 100n;
-
-    // Get current base fee from latest block and calculate max fee
-    const block = await publicClients[chainId].getBlock();
-    const baseFee = block.baseFeePerGas ?? parseEther("0.00000005"); // 50 gwei default if baseFeePerGas is null
-    const maxFeePerGas = priorityFee + (baseFee * 120n) / 100n; // Base fee + 20% buffer
-
-    // Calculate total gas cost
-    const totalGasCost = maxFeePerGas * gasWithBuffer;
-    const gasCostEth = Number(formatEther(totalGasCost));
-    const gasCostUSD = gasCostEth * ethPrice;
-
-    // Calculate net profit
-    const netProfitUSD = dispensationUSD - gasCostUSD;
-    const minProfitUSD = 0.5; // Minimum profit threshold in USD
-
-    const isProfitable = netProfitUSD > minProfitUSD;
-
-    if (!isProfitable) {
-      wsManager.broadcastFillRequest(
-        JSON.stringify(request),
-        false,
-        "Transaction not profitable"
-      );
-      return res.status(200).json({
-        success: false,
-        reason: "Transaction not profitable",
-        details: {
-          dispensationUSD,
-          gasCostUSD,
-          netProfitUSD,
-          minProfitUSD,
-        },
-      });
-    }
-
-    // Submit the transaction
-    const tx = {
-      to: request.compact.mandate.tribunal as `0x${string}`,
-      value,
-      maxFeePerGas,
-      maxPriorityFeePerGas: priorityFee,
-      gas: gasWithBuffer,
-      account,
-      data: data as `0x${string}`,
-    };
-
-    const hash = await walletClients[chainId].sendTransaction(tx);
-
-    logger.info(`Transaction submitted: ${hash}`);
-    wsManager.broadcastFillRequest(JSON.stringify(request), true);
-    return res.status(200).json({
-      success: true,
-      transactionHash: hash,
-      details: {
-        dispensationUSD,
-        gasCostUSD,
-        netProfitUSD,
-      },
+    return res.status(result.success ? 200 : 400).json({
+      success: result.success,
+      ...(result.success
+        ? { transactionHash: result.hash }
+        : { reason: result.reason }),
+      details: result.details,
     });
   } catch (error) {
     logger.error("Error processing broadcast request:", error);
