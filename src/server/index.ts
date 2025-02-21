@@ -153,6 +153,16 @@ const theCompactService = new TheCompactService({
   8453: publicClients[8453],
 });
 
+// Supported addresses for arbiters and tribunals per chain
+const SUPPORTED_ARBITER_ADDRESSES: Record<SupportedChainId, string> = {
+  1: "0xDfd41e6E2e08e752f464084F5C11619A3c950237", // Ethereum
+  10: "0x2602D9f66ec17F2dc770063F7B91821DD741F626", // Optimism
+  130: "0x81fC1d90C5fae0f15FC91B5592177B594011C576", // Unichain
+  8453: "0xfaBE453252ca8337b091ba01BB168030E2FE6c1F", // Base
+} as const;
+
+const SUPPORTED_TRIBUNAL_ADDRESSES = SUPPORTED_ARBITER_ADDRESSES;
+
 // Start services
 priceService.start();
 tokenBalanceService.start();
@@ -318,6 +328,37 @@ app.post("/broadcast", validateBroadcastRequestMiddleware, async (req, res) => {
     const mandateChainId = Number(
       request.compact.mandate.chainId
     ) as SupportedChainId;
+
+    // Validate arbiter and tribunal addresses
+    const arbiterAddress = request.compact.arbiter.toLowerCase();
+    const tribunalAddress = request.compact.mandate.tribunal.toLowerCase();
+
+    if (
+      arbiterAddress !==
+      SUPPORTED_ARBITER_ADDRESSES[
+        Number(request.chainId) as SupportedChainId
+      ].toLowerCase()
+    ) {
+      wsManager.broadcastFillRequest(
+        JSON.stringify(request),
+        false,
+        "Unsupported arbiter address"
+      );
+      return res.status(400).json({ error: "Unsupported arbiter address" });
+    }
+
+    if (
+      tribunalAddress !==
+      SUPPORTED_TRIBUNAL_ADDRESSES[mandateChainId].toLowerCase()
+    ) {
+      wsManager.broadcastFillRequest(
+        JSON.stringify(request),
+        false,
+        "Unsupported tribunal address"
+      );
+      return res.status(400).json({ error: "Unsupported tribunal address" });
+    }
+
     const result = await processBroadcastTransaction(
       { ...request, chainId: Number(request.chainId) },
       mandateChainId,

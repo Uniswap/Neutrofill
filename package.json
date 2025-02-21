@@ -1,8 +1,8 @@
 {
   "name": "neutrofill",
-  "version": "1.0.0",
-  "author": "",
-  "description": "Automated blockchain transaction filler service",
+  "version": "0.0.1",
+  "author": "0age",
+  "description": "Automated service for filling cross-chain swap requests from CompactX",
   "main": "dist/index.js",
   "type": "module",
   "scripts": {
