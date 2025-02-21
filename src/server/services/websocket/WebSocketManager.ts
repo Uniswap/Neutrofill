@@ -8,6 +8,16 @@ interface WebSocketMessage {
   timestamp: string;
 }
 
+interface PingMessage {
+  type: "ping";
+  timestamp: number;
+}
+
+interface PongMessage {
+  type: "pong";
+  timestamp: number;
+}
+
 export class WebSocketManager {
   private clients: Set<WebSocket> = new Set();
   private readonly logger: Logger;
@@ -37,6 +47,25 @@ export class WebSocketManager {
         ws.ping();
       }, 30000);
 
+      // Handle application-level ping/pong messages
+      ws.on("message", (data: Buffer) => {
+        try {
+          const message = JSON.parse(data.toString());
+          if (message.type === "ping") {
+            // Respond to client pings with pongs
+            ws.send(
+              JSON.stringify({
+                type: "pong",
+                timestamp: message.timestamp,
+              })
+            );
+          }
+        } catch (error) {
+          this.logger.error("Error parsing message:", error);
+        }
+      });
+
+      // Handle built-in WebSocket pong frames
       ws.on("pong", () => {
         (ws as WebSocket & { isAlive?: boolean }).isAlive = true;
       });

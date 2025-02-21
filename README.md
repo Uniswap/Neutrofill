@@ -159,11 +159,52 @@ Message Types:
 3. Fill Request Status (Server -> Client):
 ```typescript
 {
-  type: "fill_request_update",
-  request: string,
-  willFill: boolean,
-  reason?: string,
-  timestamp: string  // ISO timestamp
+  type: "fillRequest",
+  success: boolean,
+  request: {
+    chainId: string,
+    compact: {
+      arbiter: string,
+      sponsor: string,
+      nonce: string,
+      expires: string,
+      id: string,
+      amount: string,
+      mandate: {
+        chainId: number,
+        tribunal: string,
+        recipient: string,
+        expires: string,
+        token: string,
+        minimumAmount: string,
+        baselinePriorityFee: string,
+        scalingFactor: string,
+        salt: string
+      }
+    },
+    sponsorSignature: string | null,
+    allocatorSignature: string,
+    context: {
+      dispensation: string,
+      dispensationUSD: string,
+      spotOutputAmount: string,
+      quoteOutputAmountDirect: string,
+      quoteOutputAmountNet: string,
+      deltaAmount?: string,
+      slippageBips?: number,
+      witnessTypeString: string,
+      witnessHash: string,
+      claimHash?: string
+    }
+  },
+  error?: string,  // Present only if success is false
+  transactionHash?: string,  // Present only if success is true
+  details?: {  // Present only if success is true
+    dispensationUSD: number,
+    gasCostUSD: number,
+    netProfitUSD: number,
+    minProfitUSD: number
+  }
 }
 ```
 
