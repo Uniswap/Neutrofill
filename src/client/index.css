@@ -1,3 +1,26 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+@layer base {
+  :root {
+    font-family: Inter, system-ui, -apple-system, sans-serif;
+    line-height: 1.5;
+    font-weight: 400;
+    color-scheme: dark;
+  }
+
+  body {
+    margin: 0;
+    min-width: 320px;
+    min-height: 100vh;
+    background-color: theme('colors.background');
+    color: theme('colors.gray.200');
+  }
+}
+
+@layer components {
+  .glass-panel {
+    @apply bg-panel-bg border border-panel-border rounded-xl backdrop-blur-lg;
+  }
+}
