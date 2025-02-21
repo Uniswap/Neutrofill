@@ -22,6 +22,7 @@ import {
 import { TheCompactService } from "./services/TheCompactService.js";
 import { PriceService } from "./services/price/PriceService.js";
 import { TokenBalanceService } from "./services/balance/TokenBalanceService.js";
+import { IndexerService } from "./services/indexer/IndexerService.js";
 import { WebSocketManager } from "./services/websocket/WebSocketManager.js";
 import type { BroadcastRequest } from "./types/broadcast.js";
 import { deriveClaimHash } from "./utils.js";
@@ -42,13 +43,19 @@ const server = createServer(app);
 // Initialize services
 const logger = new Logger("Server");
 const priceService = new PriceService(process.env.COINGECKO_API_KEY);
-const wsManager = new WebSocketManager(server);
 
 // Initialize the account from private key
 if (!process.env.PRIVATE_KEY) {
   throw new Error("PRIVATE_KEY environment variable is required");
 }
 const account = privateKeyToAccount(process.env.PRIVATE_KEY as `0x${string}`);
+
+const indexerService = new IndexerService(
+  process.env.COMPACT_INDEXER ||
+    "https://the-compact-indexer-2.ponder-dev.com/",
+  account.address
+);
+const wsManager = new WebSocketManager(server);
 
 // Configure clients with specific settings
 const commonConfig = {
@@ -167,6 +174,7 @@ const SUPPORTED_TRIBUNAL_ADDRESSES = SUPPORTED_ARBITER_ADDRESSES;
 // Start services
 priceService.start();
 tokenBalanceService.start();
+indexerService.start();
 
 // Check and set token approvals for supported chains
 const chainsToApprove = [10, 130, 8453] as const; // Optimism, Unichain, Base
@@ -195,12 +203,14 @@ wsManager.broadcastAccountUpdate(account.address);
 process.on("SIGTERM", () => {
   priceService.stop();
   tokenBalanceService.stop();
+  indexerService.stop();
   process.exit(0);
 });
 
 process.on("SIGINT", () => {
   priceService.stop();
   tokenBalanceService.stop();
+  indexerService.stop();
   process.exit(0);
 });
 
