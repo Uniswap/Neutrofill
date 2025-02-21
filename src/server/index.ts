@@ -33,7 +33,7 @@ import { WebSocketManager } from "./services/websocket/WebSocketManager.js";
 import type { BroadcastRequest } from "./types/broadcast.js";
 import { deriveClaimHash, derivePriorityFee } from "./utils.js";
 import { Logger } from "./utils/logger.js";
-import { validateBroadcastRequest } from "./validation/broadcast.js";
+import { validateBroadcastRequestMiddleware } from "./validation/broadcast.js";
 import { verifyBroadcastRequest } from "./validation/signature.js";
 
 const __filename = fileURLToPath(import.meta.url);
@@ -192,14 +192,42 @@ process.on("SIGINT", () => {
 app.use("/health", cors());
 app.use("/broadcast", cors());
 
-// Handle API routes
-app.use(express.json());
+// Define interface for extended request type
+interface ExtendedRequest extends express.Request {
+  rawBody?: Buffer;
+}
+
+// Parse JSON bodies (must be before routes)
+app.use(
+  express.json({
+    limit: "1mb",
+    strict: true,
+    verify: (req: ExtendedRequest, _res, buf) => {
+      try {
+        // Store raw body for later use if needed
+        req.rawBody = buf;
+        JSON.parse(buf.toString());
+      } catch (e) {
+        throw new Error("Invalid JSON");
+      }
+    },
+  })
+);
 
 // Broadcast endpoint
-app.post("/broadcast", validateBroadcastRequest, async (req, res) => {
+app.post("/broadcast", validateBroadcastRequestMiddleware, async (req, res) => {
   try {
     const request = req.body as BroadcastRequest;
-    const chainId = Number.parseInt(request.chainId) as SupportedChainId;
+    const chainId = Number.parseInt(
+      request.chainId.toString()
+    ) as SupportedChainId;
+
+    // Log request info after validation
+    logger.info("Received valid broadcast request:", {
+      contentType: req.headers["content-type"],
+      chainId: request.chainId,
+      mandateChainId: request.compact.mandate.chainId,
+    });
 
     // Derive and log claim hash
     const claimHash = deriveClaimHash(chainId, request.compact);

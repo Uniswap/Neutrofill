@@ -6,7 +6,8 @@
       "server/static/**/*",
       "src/server/static/**/*",
       "src/client/dist/**/*",
-      "**/node_modules/**/*"
+      "**/node_modules/**/*",
+      "**/*.css"
     ]
   },
   "organizeImports": {
@@ -20,7 +21,10 @@
       "suspicious": {
         "noArrayIndexKey": "off"
       },
-      "complexity": {}
+      "complexity": {},
+      "correctness": {
+        "noUnknownFunction": "off"
+      }
     }
   },
   "formatter": {

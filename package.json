@@ -22,17 +22,9 @@
     "prepare": "husky"
   },
   "lint-staged": {
-    "*.{ts,tsx}": [
-      "biome format --write",
-      "biome lint --write"
-    ]
+    "*.{ts,tsx}": ["biome format --write", "biome lint --write"]
   },
-  "keywords": [
-    "blockchain",
-    "ethereum",
-    "transaction",
-    "automation"
-  ],
+  "keywords": ["blockchain", "ethereum", "transaction", "automation"],
   "license": "MIT",
   "dependencies": {
     "@types/cors": "^2.8.17",
