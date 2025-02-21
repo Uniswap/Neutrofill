@@ -176,6 +176,7 @@ export class WebSocketClient {
         break;
       case "account_update":
         this.onAccountUpdate?.(data.account);
+        this.onTokenBalances?.(data.chainId, data.balances);
         break;
       case "price_update":
         this.onEthPrice?.(data.chainId, data.price);
