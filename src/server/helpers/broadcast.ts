@@ -309,7 +309,13 @@ export async function processBroadcastTransaction(
     `account balance ${accountBalance} exceeds required balance of ${requiredBalance}. Submitting transaction!`
   );
 
-  // Submit transaction
+  // Get the account from the wallet client
+  const account = walletClient.account;
+  if (!account) {
+    throw new Error("No account found in wallet client");
+  }
+
+  // Submit transaction with the wallet client
   const hash = await walletClient.sendTransaction({
     to: request.compact.mandate.tribunal as `0x${string}`,
     value,
@@ -317,8 +323,8 @@ export async function processBroadcastTransaction(
     maxPriorityFeePerGas: priorityFee,
     gas: finalGasWithBuffer,
     data: data as `0x${string}`,
-    account: address,
     chain,
+    account,
   });
 
   // Calculate final costs and profit
