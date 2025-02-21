@@ -87,6 +87,15 @@ export function App() {
     };
   }, []);
 
+  const chainNames: Record<number, string> = {
+    1: "Ethereum",
+    10: "Optimism",
+    130: "Unichain",
+    8453: "Base",
+  };
+
+  const orderedChainIds = [1, 10, 130, 8453];
+
   return (
     <div className="min-h-screen bg-background text-gray-200">
       <header className="border-b border-gray-800 bg-background/50 backdrop-blur-sm sticky top-0 z-10">
@@ -129,83 +138,80 @@ export function App() {
             </div>
           </div>
 
-          {/* ETH Prices */}
+          {/* ETH Prices and Token Balances */}
           <div className="glass-panel">
             <div className="px-6 py-5">
-              <h2 className="text-lg font-medium text-gray-200">ETH Prices</h2>
-              <div className="mt-4">
-                {Object.entries(ethPrices).length === 0 ? (
-                  <p className="text-gray-500">No price data yet</p>
-                ) : (
-                  <div className="divide-y divide-gray-800">
-                    {Object.entries(ethPrices).map(
-                      ([chainId, { price, timestamp }]) => (
-                        <div
-                          key={chainId}
-                          className="flex items-center justify-between py-3 first:pt-0 last:pb-0"
-                        >
-                          <span className="text-gray-400">Chain {chainId}</span>
-                          <div className="flex items-center space-x-4">
-                            <span className="font-mono text-gray-200">
-                              ${Number.parseFloat(price).toFixed(2)}
-                            </span>
-                            <span className="text-sm text-gray-500">
-                              {new Date(timestamp).toLocaleTimeString()}
-                            </span>
-                          </div>
-                        </div>
-                      )
-                    )}
-                  </div>
-                )}
-              </div>
-            </div>
-          </div>
-
-          {/* Token Balances */}
-          <div className="glass-panel">
-            <div className="px-6 py-5">
-              <h2 className="text-lg font-medium text-gray-200">
-                Token Balances
+              <h2 className="text-lg font-medium text-gray-200 mb-4">
+                Prices & Balances
               </h2>
-              <div className="mt-4">
-                {Object.entries(tokenBalances).length === 0 ? (
-                  <p className="text-gray-500">No balance data yet</p>
-                ) : (
-                  <div className="space-y-6">
-                    {Object.entries(tokenBalances).map(
-                      ([chainId, { balances, timestamp }]) => (
-                        <div key={chainId}>
-                          <h3 className="text-sm font-medium text-gray-400 mb-3">
-                            Chain {chainId}
-                          </h3>
-                          <div className="divide-y divide-gray-800">
-                            {Object.entries(balances).map(
-                              ([token, balance]) => (
-                                <div
-                                  key={token}
-                                  className="flex items-center justify-between py-3 first:pt-0 last:pb-0"
-                                >
-                                  <span className="font-mono text-sm text-gray-400">
-                                    {token}
-                                  </span>
-                                  <div className="flex items-center space-x-4">
-                                    <span className="font-mono text-sm text-gray-200">
-                                      {balance}
-                                    </span>
-                                    <span className="text-xs text-gray-500">
-                                      {new Date(timestamp).toLocaleTimeString()}
-                                    </span>
-                                  </div>
-                                </div>
-                              )
-                            )}
-                          </div>
-                        </div>
-                      )
-                    )}
-                  </div>
-                )}
+              <div className="overflow-x-auto">
+                <table className="w-full">
+                  <thead>
+                    <tr className="text-left border-b border-gray-800">
+                      <th className="py-2 font-medium text-gray-400">Chain</th>
+                      {orderedChainIds.map((chainId) => (
+                        <th
+                          key={chainId}
+                          className="py-2 font-medium text-gray-200"
+                        >
+                          {chainNames[chainId]}
+                        </th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-800">
+                    <tr>
+                      <td className="py-3 font-medium text-gray-400">
+                        ETH Price
+                      </td>
+                      {orderedChainIds.map((chainId) => (
+                        <td key={chainId} className="py-3">
+                          <span className="font-mono text-gray-200">
+                            {ethPrices[chainId]?.price
+                              ? `$${Number.parseFloat(ethPrices[chainId].price).toFixed(2)}`
+                              : "-"}
+                          </span>
+                        </td>
+                      ))}
+                    </tr>
+                    <tr>
+                      <td className="py-3 font-medium text-gray-400">
+                        ETH Balance
+                      </td>
+                      {orderedChainIds.map((chainId) => (
+                        <td key={chainId} className="py-3">
+                          <span className="font-mono text-gray-200">
+                            {tokenBalances[chainId]?.balances?.ETH ?? "-"}
+                          </span>
+                        </td>
+                      ))}
+                    </tr>
+                    <tr>
+                      <td className="py-3 font-medium text-gray-400">
+                        WETH Balance
+                      </td>
+                      {orderedChainIds.map((chainId) => (
+                        <td key={chainId} className="py-3">
+                          <span className="font-mono text-gray-200">
+                            {tokenBalances[chainId]?.balances?.WETH ?? "-"}
+                          </span>
+                        </td>
+                      ))}
+                    </tr>
+                    <tr>
+                      <td className="py-3 font-medium text-gray-400">
+                        USDC Balance
+                      </td>
+                      {orderedChainIds.map((chainId) => (
+                        <td key={chainId} className="py-3">
+                          <span className="font-mono text-gray-200">
+                            {tokenBalances[chainId]?.balances?.USDC ?? "-"}
+                          </span>
+                        </td>
+                      ))}
+                    </tr>
+                  </tbody>
+                </table>
               </div>
             </div>
           </div>
