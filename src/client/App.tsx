@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { WebSocketClient } from "./websocket";
+import { formatEthBalance, formatUsdcBalance } from "./utils";
 
 interface FillRequest {
   request: unknown;
@@ -181,7 +182,9 @@ export function App() {
                       {orderedChainIds.map((chainId) => (
                         <td key={chainId} className="py-3">
                           <span className="font-mono text-gray-200">
-                            {tokenBalances[chainId]?.balances?.ETH ?? "-"}
+                            {formatEthBalance(
+                              tokenBalances[chainId]?.balances?.ETH ?? "-"
+                            )}
                           </span>
                         </td>
                       ))}
@@ -193,7 +196,9 @@ export function App() {
                       {orderedChainIds.map((chainId) => (
                         <td key={chainId} className="py-3">
                           <span className="font-mono text-gray-200">
-                            {tokenBalances[chainId]?.balances?.WETH ?? "-"}
+                            {formatEthBalance(
+                              tokenBalances[chainId]?.balances?.WETH ?? "-"
+                            )}
                           </span>
                         </td>
                       ))}
@@ -205,7 +210,9 @@ export function App() {
                       {orderedChainIds.map((chainId) => (
                         <td key={chainId} className="py-3">
                           <span className="font-mono text-gray-200">
-                            {tokenBalances[chainId]?.balances?.USDC ?? "-"}
+                            {formatUsdcBalance(
+                              tokenBalances[chainId]?.balances?.USDC ?? "-"
+                            )}
                           </span>
                         </td>
                       ))}
