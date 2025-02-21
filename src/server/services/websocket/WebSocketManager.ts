@@ -77,18 +77,22 @@ export class WebSocketManager {
   }
 
   public broadcastAccountUpdate(account: string): void {
-    this.broadcast("account", { account });
+    const timestamp = new Date().toISOString();
+    this.broadcast("account_update", { account, timestamp });
   }
 
   public broadcastTokenBalances(
     chainId: number,
+    account: string,
     balances: Record<string, string>
   ): void {
-    this.broadcast("token_balances", { chainId, balances });
+    const timestamp = new Date().toISOString();
+    this.broadcast("account_update", { chainId, account, balances, timestamp });
   }
 
   public broadcastEthPrice(chainId: number, price: string): void {
-    this.broadcast("eth_price", { chainId, price });
+    const timestamp = new Date().toISOString();
+    this.broadcast("price_update", { chainId, price, timestamp });
   }
 
   public broadcastFillRequest(
@@ -96,20 +100,20 @@ export class WebSocketManager {
     willFill: boolean,
     reason?: string
   ): void {
-    this.broadcast("fill_request", { request, willFill, reason });
+    const timestamp = new Date().toISOString();
+    this.broadcast("fill_request_update", {
+      request,
+      willFill,
+      reason,
+      timestamp,
+    });
   }
 
   private broadcast(type: string, data: Record<string, unknown>): void {
-    const message: WebSocketMessage = {
-      type,
-      data,
-      timestamp: new Date().toISOString(),
-    };
-
-    const messageStr = JSON.stringify(message);
+    const message = JSON.stringify({ type, ...data });
     for (const client of this.clients) {
       if (client.readyState === WebSocket.OPEN) {
-        client.send(messageStr);
+        client.send(message);
       }
     }
   }

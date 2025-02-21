@@ -1,3 +1,4 @@
+import { EventEmitter } from "node:events";
 import type { PublicClient } from "viem";
 import { CHAIN_CONFIG, type SupportedChainId } from "../../config/constants.js";
 import { Logger } from "../../utils/logger.js";
@@ -20,7 +21,7 @@ interface TokenBalance {
   lastUpdated: number;
 }
 
-export class TokenBalanceService {
+export class TokenBalanceService extends EventEmitter {
   private balances: Map<SupportedChainId, TokenBalance>;
   private logger: Logger;
   private readonly clients: { [chainId: number]: PublicClient };
@@ -32,6 +33,7 @@ export class TokenBalanceService {
     accountAddress: `0x${string}`,
     chainClients: { [chainId: number]: PublicClient }
   ) {
+    super();
     this.balances = new Map();
     this.logger = new Logger("TokenBalanceService");
     this.clients = chainClients;
@@ -109,6 +111,16 @@ export class TokenBalanceService {
           balances.USDC = usdcBalance;
 
           this.balances.set(numericChainId, balances);
+          this.logger.debug(
+            `Updated balances for chain ${chainId}: ETH=${balances.ETH}, WETH=${balances.WETH}, USDC=${balances.USDC}`
+          );
+
+          // Emit balance update event
+          this.emit("balance_update", numericChainId, this.accountAddress, {
+            ETH: balances.ETH.toString(),
+            WETH: balances.WETH.toString(),
+            USDC: balances.USDC.toString(),
+          });
         })
       );
 

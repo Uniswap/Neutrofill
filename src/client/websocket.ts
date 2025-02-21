@@ -1,4 +1,12 @@
 // Message type definitions
+export interface ConnectionUpdate {
+  type: "connected";
+  data: {
+    clientCount: number;
+  };
+  timestamp: string;
+}
+
 export interface AccountUpdate {
   type: "account_update";
   account: string;
@@ -19,7 +27,11 @@ export interface FillRequestUpdate {
   reason?: string;
 }
 
-export type WebSocketMessage = AccountUpdate | PriceUpdate | FillRequestUpdate;
+export type WebSocketMessage =
+  | ConnectionUpdate
+  | AccountUpdate
+  | PriceUpdate
+  | FillRequestUpdate;
 
 export class WebSocketClient {
   private ws: WebSocket | null = null;
@@ -102,6 +114,11 @@ export class WebSocketClient {
 
   private handleMessage(data: WebSocketMessage): void {
     switch (data.type) {
+      case "connected":
+        console.log("Connected to the server");
+        console.log(`Client count: ${data.data.clientCount}`);
+        console.log(`Timestamp: ${data.timestamp}`);
+        break;
       case "account_update":
         this.onAccountUpdate?.(data.account);
         break;

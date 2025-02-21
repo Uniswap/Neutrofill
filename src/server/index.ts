@@ -28,6 +28,7 @@ import {
 } from "./config/constants.js";
 import { TheCompactService } from "./services/TheCompactService.js";
 import { PriceService } from "./services/price/PriceService.js";
+import { TokenBalanceService } from "./services/balance/TokenBalanceService.js";
 import { WebSocketManager } from "./services/websocket/WebSocketManager.js";
 import type { BroadcastRequest } from "./types/broadcast.js";
 import { deriveClaimHash, derivePriorityFee } from "./utils.js";
@@ -42,34 +43,41 @@ config();
 
 const app = express();
 const server = createServer(app);
+
+// Initialize services
 const logger = new Logger("Server");
 const priceService = new PriceService(process.env.COINGECKO_API_KEY);
-// Initialize TheCompactService with chain-specific public clients for nonce validation
-const theCompactService = new TheCompactService({
+const wsManager = new WebSocketManager(server);
+
+// Initialize the account from private key
+if (!process.env.PRIVATE_KEY) {
+  throw new Error("PRIVATE_KEY environment variable is required");
+}
+const account = privateKeyToAccount(process.env.PRIVATE_KEY as `0x${string}`);
+
+// Configure clients with specific settings
+const commonConfig = {
+  pollingInterval: 4_000,
+  batch: {
+    multicall: true,
+  },
+  cacheTime: 4_000,
+} as const;
+
+// Initialize public clients for different chains
+const publicClients: Record<SupportedChainId, PublicClient> = {
   1: createPublicClient<Transport, ViemChain>({
-    pollingInterval: 4_000,
-    batch: {
-      multicall: true,
-    },
-    cacheTime: 4_000,
+    ...commonConfig,
     chain: mainnet,
     transport: http(process.env[CHAIN_CONFIG[1].rpcEnvKey] || ""),
   }) as PublicClient,
   10: createPublicClient<Transport, ViemChain>({
-    pollingInterval: 4_000,
-    batch: {
-      multicall: true,
-    },
-    cacheTime: 4_000,
+    ...commonConfig,
     chain: optimism,
     transport: http(process.env[CHAIN_CONFIG[10].rpcEnvKey] || ""),
   }) as PublicClient,
   130: createPublicClient<Transport, ViemChain>({
-    pollingInterval: 4_000,
-    batch: {
-      multicall: true,
-    },
-    cacheTime: 4_000,
+    ...commonConfig,
     chain: defineChain({
       id: 130,
       name: CHAIN_CONFIG[130].name,
@@ -89,17 +97,96 @@ const theCompactService = new TheCompactService({
     transport: http(process.env[CHAIN_CONFIG[130].rpcEnvKey] || ""),
   }) as PublicClient,
   8453: createPublicClient<Transport, ViemChain>({
-    pollingInterval: 4_000,
-    batch: {
-      multicall: true,
-    },
-    cacheTime: 4_000,
+    ...commonConfig,
     chain: base,
     transport: http(process.env[CHAIN_CONFIG[8453].rpcEnvKey] || ""),
   }) as PublicClient,
+};
+
+// Initialize token balance service
+const tokenBalanceService = new TokenBalanceService(
+  account.address,
+  publicClients
+);
+
+// Initialize wallet clients for different chains
+const walletClients: Record<
+  SupportedChainId,
+  WalletClient<Transport, ViemChain>
+> = {
+  1: createWalletClient({
+    account,
+    chain: mainnet,
+    transport: http(process.env[CHAIN_CONFIG[1].rpcEnvKey]),
+  }),
+  10: createWalletClient({
+    account,
+    chain: optimism,
+    transport: http(process.env[CHAIN_CONFIG[10].rpcEnvKey]),
+  }),
+  130: createWalletClient({
+    account,
+    chain: defineChain({
+      id: 130,
+      name: CHAIN_CONFIG[130].name,
+      nativeCurrency: {
+        decimals: 18,
+        name: "Ether",
+        symbol: CHAIN_CONFIG[130].nativeToken,
+      },
+      rpcUrls: {
+        default: { http: [process.env[CHAIN_CONFIG[130].rpcEnvKey] || ""] },
+        public: { http: [process.env[CHAIN_CONFIG[130].rpcEnvKey] || ""] },
+      },
+      blockExplorers: {
+        default: { name: "UniScan", url: CHAIN_CONFIG[130].blockExplorer },
+      },
+    }),
+    transport: http(process.env[CHAIN_CONFIG[130].rpcEnvKey]),
+  }),
+  8453: createWalletClient({
+    account,
+    chain: base,
+    transport: http(process.env[CHAIN_CONFIG[8453].rpcEnvKey]),
+  }),
+};
+
+// Initialize TheCompactService with chain-specific public clients for nonce validation
+const theCompactService = new TheCompactService({
+  1: publicClients[1],
+  10: publicClients[10],
+  130: publicClients[130],
+  8453: publicClients[8453],
 });
 
-const wsManager = new WebSocketManager(server);
+// Start services
+priceService.start();
+tokenBalanceService.start();
+
+// Set up service event handlers
+priceService.on("price_update", (chainId: number, price: number) => {
+  wsManager.broadcastEthPrice(chainId, price.toString());
+});
+
+tokenBalanceService.on("balance_update", (chainId, account, balances) => {
+  wsManager.broadcastTokenBalances(chainId, account, balances);
+});
+
+// Broadcast initial account info
+wsManager.broadcastAccountUpdate(account.address);
+
+// Ensure services are stopped when the process exits
+process.on("SIGTERM", () => {
+  priceService.stop();
+  tokenBalanceService.stop();
+  process.exit(0);
+});
+
+process.on("SIGINT", () => {
+  priceService.stop();
+  tokenBalanceService.stop();
+  process.exit(0);
+});
 
 // Enable CORS for API endpoints
 app.use("/api", cors());
@@ -426,125 +513,6 @@ app.get("*", (req, res) => {
     return res.status(404).json({ error: "Not found" });
   }
   res.sendFile(join(__dirname, "../../dist/client/index.html"));
-});
-
-// Start price updates
-priceService.start();
-
-// Ensure price service is stopped when the process exits
-process.on("SIGTERM", () => {
-  priceService.stop();
-  process.exit(0);
-});
-
-process.on("SIGINT", () => {
-  priceService.stop();
-  process.exit(0);
-});
-
-if (!process.env.PRIVATE_KEY) {
-  throw new Error("PRIVATE_KEY environment variable is required");
-}
-
-// Initialize the account from private key
-const account = privateKeyToAccount(process.env.PRIVATE_KEY as `0x${string}`);
-
-// Configure clients with specific settings
-const commonConfig = {
-  pollingInterval: 4_000,
-  batch: {
-    multicall: true,
-  },
-  cacheTime: 4_000,
-} as const;
-
-// Initialize public clients for different chains
-const publicClients: Record<SupportedChainId, PublicClient> = {
-  1: createPublicClient<Transport, ViemChain>({
-    ...commonConfig,
-    chain: mainnet,
-    transport: http(process.env[CHAIN_CONFIG[1].rpcEnvKey] || ""),
-  }) as PublicClient,
-  10: createPublicClient<Transport, ViemChain>({
-    ...commonConfig,
-    chain: optimism,
-    transport: http(process.env[CHAIN_CONFIG[10].rpcEnvKey] || ""),
-  }) as PublicClient,
-  130: createPublicClient<Transport, ViemChain>({
-    ...commonConfig,
-    chain: defineChain({
-      id: 130,
-      name: CHAIN_CONFIG[130].name,
-      nativeCurrency: {
-        decimals: 18,
-        name: "Ether",
-        symbol: CHAIN_CONFIG[130].nativeToken,
-      },
-      rpcUrls: {
-        default: { http: [process.env[CHAIN_CONFIG[130].rpcEnvKey] || ""] },
-        public: { http: [process.env[CHAIN_CONFIG[130].rpcEnvKey] || ""] },
-      },
-      blockExplorers: {
-        default: { name: "UniScan", url: CHAIN_CONFIG[130].blockExplorer },
-      },
-    }),
-    transport: http(process.env[CHAIN_CONFIG[130].rpcEnvKey] || ""),
-  }) as PublicClient,
-  8453: createPublicClient<Transport, ViemChain>({
-    ...commonConfig,
-    chain: base,
-    transport: http(process.env[CHAIN_CONFIG[8453].rpcEnvKey] || ""),
-  }) as PublicClient,
-};
-
-// Initialize wallet clients for different chains
-const walletClients: Record<
-  SupportedChainId,
-  WalletClient<Transport, ViemChain>
-> = {
-  1: createWalletClient({
-    account,
-    chain: mainnet,
-    transport: http(process.env[CHAIN_CONFIG[1].rpcEnvKey]),
-  }),
-  10: createWalletClient({
-    account,
-    chain: optimism,
-    transport: http(process.env[CHAIN_CONFIG[10].rpcEnvKey]),
-  }),
-  130: createWalletClient({
-    account,
-    chain: defineChain({
-      id: 130,
-      name: CHAIN_CONFIG[130].name,
-      nativeCurrency: {
-        decimals: 18,
-        name: "Ether",
-        symbol: CHAIN_CONFIG[130].nativeToken,
-      },
-      rpcUrls: {
-        default: { http: [process.env[CHAIN_CONFIG[130].rpcEnvKey] || ""] },
-        public: { http: [process.env[CHAIN_CONFIG[130].rpcEnvKey] || ""] },
-      },
-      blockExplorers: {
-        default: { name: "UniScan", url: CHAIN_CONFIG[130].blockExplorer },
-      },
-    }),
-    transport: http(process.env[CHAIN_CONFIG[130].rpcEnvKey]),
-  }),
-  8453: createWalletClient({
-    account,
-    chain: base,
-    transport: http(process.env[CHAIN_CONFIG[8453].rpcEnvKey]),
-  }),
-};
-
-// Broadcast account info on startup
-wsManager.broadcastAccountUpdate(account.address);
-
-// Update price service to broadcast prices
-priceService.on("price_update", (chainId: number, price: number) => {
-  wsManager.broadcastEthPrice(chainId, price.toString());
 });
 
 // Start the server
