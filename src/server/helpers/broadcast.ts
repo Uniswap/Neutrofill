@@ -42,26 +42,8 @@ export async function processBroadcastTransaction(
   const mandateChainConfig = CHAIN_CONFIG[mandateChainId];
   logger.info(`Evaluating fill against chainId ${mandateChainId}`);
 
-  // Use existing chain from wallet or create new one from config
-  const chain =
-    walletClient.chain?.id === mandateChainId
-      ? walletClient.chain
-      : ({
-          id: mandateChainId,
-          name: mandateChainConfig.name,
-          network: mandateChainConfig.name.toLowerCase(),
-          nativeCurrency: {
-            name: mandateChainConfig.nativeToken,
-            symbol: mandateChainConfig.nativeToken,
-            decimals: 18,
-          },
-          rpcUrls: {
-            default: {
-              http: [process.env[mandateChainConfig.rpcEnvKey] || ""],
-            },
-            public: { http: [process.env[mandateChainConfig.rpcEnvKey] || ""] },
-          },
-        } as Chain);
+  // Use chain from public client
+  const chain = publicClient.chain;
 
   // Get current ETH price for the chain from memory
   const ethPrice = priceService.getPrice(chainId);
@@ -179,17 +161,8 @@ export async function processBroadcastTransaction(
     ],
   });
 
-  // Use existing client or create new one with mandate chain
-  const chainPublicClient =
-    publicClient.chain?.id === mandateChainId
-      ? publicClient
-      : (createPublicClient({
-          chain,
-          transport: http(chain.rpcUrls.default.http[0]),
-        }) as PublicClient<Transport, Chain>);
-
   // Get current base fee from latest block using mandate chain
-  const block = await chainPublicClient.getBlock();
+  const block = await publicClient.getBlock();
   const baseFee = block.baseFeePerGas;
   if (!baseFee) {
     return {
@@ -203,7 +176,7 @@ export async function processBroadcastTransaction(
 
   // Estimate gas using simulation values and add 25% buffer
   logger.info("Performing initial simulation to get gas estimate");
-  const estimatedGas = await chainPublicClient.estimateGas({
+  const estimatedGas = await publicClient.estimateGas({
     to: request.compact.mandate.tribunal as `0x${string}`,
     value: simulationValue,
     data,
@@ -299,7 +272,7 @@ export async function processBroadcastTransaction(
       : bufferedDispensation;
 
   // Do final gas estimation with actual values
-  const finalEstimatedGas = await chainPublicClient.estimateGas({
+  const finalEstimatedGas = await publicClient.estimateGas({
     to: request.compact.mandate.tribunal as `0x${string}`,
     value,
     data,
@@ -315,7 +288,7 @@ export async function processBroadcastTransaction(
   );
 
   // Check if we have enough ETH for value + gas
-  const accountBalance = await chainPublicClient.getBalance({ address });
+  const accountBalance = await publicClient.getBalance({ address });
   const requiredBalance =
     value + (priorityFee + (baseFee * 120n) / 100n) * finalGasWithBuffer;
 

@@ -315,12 +315,15 @@ app.post("/broadcast", validateBroadcastRequestMiddleware, async (req, res) => {
     }
 
     // Process the broadcast transaction
+    const mandateChainId = Number(
+      request.compact.mandate.chainId
+    ) as SupportedChainId;
     const result = await processBroadcastTransaction(
       { ...request, chainId: Number(request.chainId) },
-      chainId,
+      mandateChainId,
       priceService,
-      publicClients[chainId],
-      walletClients[chainId],
+      publicClients[mandateChainId],
+      walletClients[mandateChainId],
       account.address
     );
 
