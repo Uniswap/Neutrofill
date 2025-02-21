@@ -103,7 +103,7 @@ The following environment variables are required:
 
 ## API Endpoints
 
-### POST /api/broadcast
+### POST /broadcast
 
 Submit a transaction for potential execution.
 
@@ -121,7 +121,7 @@ Request body:
 }
 ```
 
-### GET /api/health
+### GET /health
 
 Check server health status.
 

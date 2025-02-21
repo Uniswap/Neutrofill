@@ -188,19 +188,15 @@ process.on("SIGINT", () => {
   process.exit(0);
 });
 
-// Enable CORS for API endpoints
-app.use("/api", cors());
+// Enable CORS for specific endpoints
 app.use("/health", cors());
 app.use("/broadcast", cors());
-
-// Serve static files from dist/client
-app.use(express.static(join(__dirname, "../../dist/client")));
 
 // Handle API routes
 app.use(express.json());
 
-// Prefix existing endpoints with /api
-app.post("/api/broadcast", validateBroadcastRequest, async (req, res) => {
+// Broadcast endpoint
+app.post("/broadcast", validateBroadcastRequest, async (req, res) => {
   try {
     const request = req.body as BroadcastRequest;
     const chainId = Number.parseInt(request.chainId) as SupportedChainId;
@@ -499,17 +495,28 @@ app.post("/api/broadcast", validateBroadcastRequest, async (req, res) => {
 });
 
 // Health check endpoint
-app.get("/api/health", (_req, res) => {
+app.get("/health", (_req, res) => {
   res.json({
     status: "ok",
     timestamp: Math.floor(Date.now() / 1000),
   });
 });
 
+// Handle GET requests to /broadcast with 405 Method Not Allowed
+app.get("/broadcast", (_req, res) => {
+  res.status(405).json({
+    error: "Method not allowed",
+    message: "Only POST requests are allowed for this endpoint",
+  });
+});
+
+// Serve static files from dist/client
+app.use(express.static(join(__dirname, "../../dist/client")));
+
 // Serve index.html for all other routes to support client-side routing
 app.get("*", (req, res) => {
-  // Don't serve index.html for /ws or /api routes
-  if (req.path.startsWith("/ws") || req.path.startsWith("/api")) {
+  // Don't serve index.html for /ws routes
+  if (req.path.startsWith("/ws")) {
     return res.status(404).json({ error: "Not found" });
   }
   res.sendFile(join(__dirname, "../../dist/client/index.html"));
