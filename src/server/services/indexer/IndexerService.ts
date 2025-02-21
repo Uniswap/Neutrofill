@@ -61,22 +61,43 @@ export class IndexerService {
     const lockKey = this.getLockKey(chainId, lockId);
     const existingStatus = this.processedLocks.get(lockKey);
 
-    // Skip if we've already submitted a transaction or if withdrawals are already pending/enabled
+    logger.info(
+      `Checking forced withdrawal status for lock ${lockId} on chain ${chainId}`,
+      { existingStatus }
+    );
+
+    // Skip if we've already submitted a transaction or if it's already enabled
     if (
       existingStatus?.enableTxSubmitted ||
-      existingStatus?.status !== "Disabled"
+      existingStatus?.status === "Enabled"
     ) {
+      logger.info(
+        `Skipping enableForcedWithdrawal for lock ${lockId} on chain ${chainId} - ${
+          existingStatus.enableTxSubmitted
+            ? "already submitted"
+            : "already enabled"
+        }`,
+        { existingStatus }
+      );
       return;
     }
 
     try {
       // Check current status
+      logger.info(
+        `Fetching current status for lock ${lockId} on chain ${chainId}`
+      );
       const { status, availableAt } =
         await this.compactService.getForcedWithdrawalStatus(
           Number(chainId),
           this.account,
           BigInt(lockId)
         );
+
+      logger.info(`Got status for lock ${lockId} on chain ${chainId}`, {
+        status,
+        availableAt,
+      });
 
       // Update our tracking
       this.processedLocks.set(lockKey, {
@@ -87,7 +108,7 @@ export class IndexerService {
       // If disabled, enable forced withdrawal
       if (status === "Disabled") {
         logger.info(
-          `Enabling forced withdrawal for lock ${lockId} on chain ${chainId}`
+          `Attempting to enable forced withdrawal for lock ${lockId} on chain ${chainId}`
         );
 
         const hash = await this.compactService.enableForcedWithdrawal(
@@ -95,11 +116,16 @@ export class IndexerService {
           BigInt(lockId)
         );
 
-        // Mark that we've submitted a transaction
+        // Mark that we've submitted a transaction and set status to Pending
         this.processedLocks.set(lockKey, {
-          status: "Disabled",
+          status: "Pending",
           enableTxSubmitted: true,
+          availableAt,
         });
+
+        logger.info(
+          `Successfully submitted enableForcedWithdrawal transaction for lock ${lockId} on chain ${chainId}: ${hash}`
+        );
       } else {
         logger.info(
           `Forced withdrawal already ${status.toLowerCase()} for lock ${lockId} on chain ${chainId}`,
