@@ -1,5 +1,6 @@
 import type { BroadcastRequest } from "../validation/broadcast.js";
 import type { PriceService } from "../services/price/PriceService.js";
+import type { TokenBalanceService } from "../services/balance/TokenBalanceService.js";
 import { derivePriorityFee } from "../utils.js";
 import {
   encodeFunctionData,
@@ -31,6 +32,7 @@ export async function processBroadcastTransaction(
   request: BroadcastRequest & { chainId: number },
   chainId: SupportedChainId,
   priceService: PriceService,
+  tokenBalanceService: TokenBalanceService,
   publicClient: PublicClient,
   walletClient: WalletClient,
   address: `0x${string}`
@@ -64,6 +66,73 @@ export async function processBroadcastTransaction(
   );
   const scalingFactor = BigInt(request.compact.mandate.scalingFactor);
 
+  // Get cached balances for the mandate chain
+  const cachedBalances = tokenBalanceService.getBalances(chainId);
+  if (!cachedBalances) {
+    return {
+      success: false,
+      reason: "Could not get cached balances for chain",
+      details: {
+        dispensationUSD,
+      },
+    };
+  }
+
+  // Calculate settlement amount based on mandate token (ETH/WETH check)
+  const mandateTokenAddress =
+    request.compact.mandate.token.toLowerCase() as `0x${string}`;
+  const isSettlementTokenETHorWETH = Object.values(CHAIN_CONFIG).some(
+    (chainConfig) =>
+      mandateTokenAddress === chainConfig.tokens.ETH.address.toLowerCase() ||
+      mandateTokenAddress === chainConfig.tokens.WETH.address.toLowerCase()
+  );
+
+  // Get the relevant token balance based on mandate token
+  let relevantTokenBalance: bigint;
+  if (
+    mandateTokenAddress === mandateChainConfig.tokens.ETH.address.toLowerCase()
+  ) {
+    relevantTokenBalance = cachedBalances.ETH;
+  } else if (
+    mandateTokenAddress === mandateChainConfig.tokens.WETH.address.toLowerCase()
+  ) {
+    relevantTokenBalance = cachedBalances.WETH;
+  } else if (
+    mandateTokenAddress === mandateChainConfig.tokens.USDC.address.toLowerCase()
+  ) {
+    relevantTokenBalance = cachedBalances.USDC;
+  } else {
+    return {
+      success: false,
+      reason: "Unsupported mandate token",
+      details: {
+        dispensationUSD,
+      },
+    };
+  }
+
+  // Check if we have sufficient token balance for minimum amount
+  if (relevantTokenBalance < minimumAmount) {
+    return {
+      success: false,
+      reason: "Token balance is less than minimum required settlement amount",
+      details: {
+        dispensationUSD,
+      },
+    };
+  }
+
+  // Check if we have sufficient token balance for simulation settlement
+  if (relevantTokenBalance < simulationSettlement) {
+    return {
+      success: false,
+      reason: "Token balance is less than simulation settlement amount",
+      details: {
+        dispensationUSD,
+      },
+    };
+  }
+
   // Calculate simulation priority fee
   const simulationPriorityFee = derivePriorityFee(
     simulationSettlement,
@@ -78,6 +147,17 @@ export async function processBroadcastTransaction(
     "0x0000000000000000000000000000000000000000"
       ? simulationSettlement + bufferedDispensation
       : bufferedDispensation;
+
+  // Check if we have sufficient ETH for simulation value
+  if (cachedBalances.ETH < simulationValue) {
+    return {
+      success: false,
+      reason: "ETH balance is less than simulation value",
+      details: {
+        dispensationUSD,
+      },
+    };
+  }
 
   // Encode simulation data with proper ABI
   const data = encodeFunctionData({
@@ -228,15 +308,6 @@ export async function processBroadcastTransaction(
     );
   }
 
-  // Calculate settlement amount based on mandate token (ETH/WETH check)
-  const mandateToken =
-    request.compact.mandate.token.toLowerCase() as `0x${string}`;
-  const isSettlementTokenETHorWETH = Object.values(CHAIN_CONFIG).some(
-    (chainConfig) =>
-      mandateToken === chainConfig.tokens.ETH.address.toLowerCase() ||
-      mandateToken === chainConfig.tokens.WETH.address.toLowerCase()
-  );
-
   const settlementAmount = isSettlementTokenETHorWETH
     ? claimAmountLessExecutionCostsWei
     : BigInt(Math.floor(claimAmountLessExecutionCostsUSD * 1e6)); // Scale up USDC amount
@@ -244,6 +315,17 @@ export async function processBroadcastTransaction(
   logger.info(
     `Settlement amount: ${settlementAmount} (minimum: ${minimumAmount})`
   );
+
+  // Check if we have sufficient token balance for settlement amount
+  if (relevantTokenBalance < settlementAmount) {
+    return {
+      success: false,
+      reason: "Token balance is less than settlement amount",
+      details: {
+        dispensationUSD,
+      },
+    };
+  }
 
   // Check if profitable (settlement amount > minimum amount)
   if (settlementAmount <= minimumAmount) {
@@ -253,6 +335,17 @@ export async function processBroadcastTransaction(
       details: {
         dispensationUSD,
         gasCostUSD,
+      },
+    };
+  }
+
+  // Check if we have sufficient ETH for value
+  if (cachedBalances.ETH < settlementAmount + bufferedDispensation) {
+    return {
+      success: false,
+      reason: "ETH balance is less than settlement value",
+      details: {
+        dispensationUSD,
       },
     };
   }
@@ -267,7 +360,7 @@ export async function processBroadcastTransaction(
 
   // Calculate final value based on mandate token (using chain-specific ETH address)
   const value =
-    mandateToken === mandateChainConfig.tokens.ETH.address.toLowerCase()
+    mandateTokenAddress === mandateChainConfig.tokens.ETH.address.toLowerCase()
       ? settlementAmount + bufferedDispensation
       : bufferedDispensation;
 
@@ -287,17 +380,16 @@ export async function processBroadcastTransaction(
     `Got final gas estimate: ${finalEstimatedGas} (${finalGasWithBuffer} with buffer)`
   );
 
-  // Check if we have enough ETH for value + gas
-  const accountBalance = await publicClient.getBalance({ address });
+  // Check if we have enough ETH for value + gas using cached balance
   const requiredBalance =
     value + (priorityFee + (baseFee * 120n) / 100n) * finalGasWithBuffer;
 
-  if (accountBalance < requiredBalance) {
-    const shortageWei = requiredBalance - accountBalance;
+  if (cachedBalances.ETH < requiredBalance) {
+    const shortageWei = requiredBalance - cachedBalances.ETH;
     const shortageEth = Number(formatEther(shortageWei));
     return {
       success: false,
-      reason: `Insufficient ETH balance. Need ${formatEther(requiredBalance)} ETH but only have ${formatEther(accountBalance)} ETH (short ${shortageEth.toFixed(6)} ETH)`,
+      reason: `Insufficient ETH balance. Need ${formatEther(requiredBalance)} ETH but only have ${formatEther(cachedBalances.ETH)} ETH (short ${shortageEth.toFixed(6)} ETH)`,
       details: {
         dispensationUSD,
         gasCostUSD,
@@ -306,7 +398,7 @@ export async function processBroadcastTransaction(
   }
 
   logger.info(
-    `account balance ${accountBalance} exceeds required balance of ${requiredBalance}. Submitting transaction!`
+    `account balance ${cachedBalances.ETH} exceeds required balance of ${requiredBalance}. Submitting transaction!`
   );
 
   // Get the account from the wallet client

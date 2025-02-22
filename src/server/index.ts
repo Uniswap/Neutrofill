@@ -380,6 +380,7 @@ app.post("/broadcast", validateBroadcastRequestMiddleware, async (req, res) => {
       { ...request, chainId: Number(request.chainId) },
       mandateChainId,
       priceService,
+      tokenBalanceService,
       publicClients[mandateChainId],
       walletClients[mandateChainId],
       account.address
