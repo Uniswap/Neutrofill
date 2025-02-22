@@ -152,7 +152,7 @@ export class IndexerService {
       existingStatus?.withdrawalTxSubmitted ||
       existingStatus?.withdrawalFailed
     ) {
-      logger.info(
+      logger.debug(
         `Skipping withdrawal for lock ${lockId} on chain ${chainId} - ${
           existingStatus.withdrawalFailed
             ? "previously failed"
@@ -167,7 +167,7 @@ export class IndexerService {
 
     // Skip if balance is 0
     if (balanceNum === 0n) {
-      logger.info(
+      logger.debug(
         `Skipping withdrawal for lock ${lockId} on chain ${chainId} - zero balance`
       );
       return;
@@ -177,7 +177,7 @@ export class IndexerService {
       // Get token info
       const tokenInfo = this.getTokenInfo(chainIdNum, tokenAddress);
       if (!tokenInfo) {
-        logger.info(
+        logger.debug(
           `Skipping withdrawal for lock ${lockId} on chain ${chainId} - unsupported token`,
           { tokenAddress }
         );
@@ -206,7 +206,7 @@ export class IndexerService {
 
       // Only withdraw if value exceeds minimum
       if (usdValue < MIN_USD_VALUE) {
-        logger.info(
+        logger.debug(
           `Skipping withdrawal for lock ${lockId} on chain ${chainId} - value too low`,
           { usdValue, minimum: MIN_USD_VALUE }
         );
@@ -221,7 +221,7 @@ export class IndexerService {
       );
 
       if (status !== "Enabled") {
-        logger.info(
+        logger.debug(
           `Skipping withdrawal for lock ${lockId} on chain ${chainId} - not enabled`,
           { status }
         );
@@ -289,7 +289,7 @@ export class IndexerService {
       existingStatus?.enableTxSubmitted ||
       existingStatus?.status === "Enabled"
     ) {
-      logger.info(
+      logger.debug(
         `Skipping enableForcedWithdrawal for lock ${lockId} on chain ${chainId} - ${
           existingStatus.enableTxSubmitted
             ? "already submitted"
