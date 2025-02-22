@@ -122,7 +122,7 @@ export async function verifyBroadcastRequest(
       chainPrefix,
     });
 
-    if (request.sponsorSignature) {
+    if (request.sponsorSignature && request.sponsorSignature !== "0x") {
       isSponsorValid = await verifySignature(
         claimHash,
         request.sponsorSignature,

@@ -222,8 +222,10 @@ export async function processBroadcastTransaction(
           id: BigInt(request.compact.id),
           amount: BigInt(request.compact.amount),
         },
-        sponsorSignature: (request.sponsorSignature ||
-          `0x${"0".repeat(128)}`) as `0x${string}`,
+        sponsorSignature: (!request.sponsorSignature ||
+        request.sponsorSignature === "0x"
+          ? `0x${"0".repeat(128)}`
+          : request.sponsorSignature) as `0x${string}`,
         allocatorSignature: request.allocatorSignature as `0x${string}`,
       },
       {
