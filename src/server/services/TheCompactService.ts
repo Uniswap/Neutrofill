@@ -234,6 +234,11 @@ export class TheCompactService {
     lockId: bigint,
     amount: bigint
   ): Promise<`0x${string}`> {
+    logger.info(
+      `Preparing to execute forced withdrawal for lock ${lockId} on chain ${chainId}`,
+      { amount: amount.toString() }
+    );
+
     const publicClient = this.publicClients[chainId];
     const walletClient = this.walletClients[chainId];
 
@@ -247,7 +252,9 @@ export class TheCompactService {
       throw new Error("No account found in wallet client");
     }
 
-    // Check that forced withdrawal is enabled
+    logger.info(`Using account ${account.address} for forced withdrawal`);
+
+    // Double check that forced withdrawal is enabled
     const { status } = await this.getForcedWithdrawalStatus(
       chainId,
       account.address,
@@ -268,12 +275,19 @@ export class TheCompactService {
       args: [lockId, account.address, amount],
     });
 
+    logger.info(`Encoded forcedWithdrawal call for lock ${lockId}`);
+
     // Get base fee
     const baseFee = await publicClient
       .getBlock({ blockTag: "latest" })
       .then((block) => block.baseFeePerGas || 0n);
 
+    logger.info(`Got base fee for chain ${chainId}: ${baseFee}`);
+
     // Submit the transaction
+    logger.info(`Submitting forcedWithdrawal transaction for lock ${lockId}`, {
+      amount: amount.toString(),
+    });
     const hash = await walletClient.sendTransaction({
       to: THE_COMPACT_ADDRESS,
       data,
@@ -284,10 +298,14 @@ export class TheCompactService {
     });
 
     logger.info(
-      `Submitted forcedWithdrawal transaction for lock ${lockId} on chain ${chainId}: ${hash}`,
+      `Successfully submitted forcedWithdrawal transaction for lock ${lockId} on chain ${chainId}: ${hash}`,
       { amount: amount.toString() }
     );
 
     return hash;
+  }
+
+  public getPublicClient(chainId: number) {
+    return this.publicClients[chainId];
   }
 }
