@@ -3,23 +3,34 @@ import type { Address } from "viem";
 
 const logger = new Logger("LockStateStore");
 
+export type LockStatus =
+  | "Disabled"
+  | "Pending"
+  | "Enabled"
+  | "Processing"
+  | "Withdrawing"
+  | "Withdrawn"
+  | "Failed";
+
 export interface LockState {
   chainId: string;
   lockId: string;
   tokenAddress: string;
+  status: LockStatus;
   balance: string;
-  status: "Disabled" | "Pending" | "Enabled";
+  usdValue?: number;
   availableAt?: number;
+  enableTxHash?: string;
   enableTxSubmitted?: boolean;
+  enableTxConfirmed?: boolean;
   withdrawalTxHash?: string;
   withdrawalTxSubmitted?: boolean;
-  withdrawalFailed?: boolean;
-  withdrawalFailedReason?: "TIMEOUT" | "REVERTED";
   withdrawalConfirmed?: boolean;
   withdrawalConfirmedAt?: number;
+  withdrawalFailed?: boolean;
+  withdrawalFailedReason?: "TIMEOUT" | "REVERTED";
   lastWithdrawalAttempt?: number;
   lastUpdated: number;
-  usdValue?: number;
 }
 
 /**
@@ -39,23 +50,52 @@ export class LockStateStore {
   /**
    * Update or add a lock state
    */
-  public updateLockState(state: LockState): void {
+  public updateState(chainId: number, lockId: string, state: LockState): void {
     const key = this.getLockKey(state.chainId, state.lockId);
+    logger.debug(`[LockStateStore] Updating state for key ${key}`, { state });
     state.lastUpdated = Date.now();
     this.states.set(key, state);
+    logger.debug("[LockStateStore] Current states:", {
+      states: Array.from(this.states.entries()),
+    });
   }
 
   /**
    * Get all locks that need processing (enabled but not withdrawn)
    */
   public getProcessableLocks(): LockState[] {
-    return Array.from(this.states.values()).filter(
-      (state) =>
-        state.status === "Enabled" &&
-        !state.withdrawalConfirmed &&
-        !state.withdrawalFailed &&
-        !this.processingLocks.has(this.getLockKey(state.chainId, state.lockId))
+    const processableLocks = Array.from(this.states.values()).filter(
+      (state) => {
+        const key = this.getLockKey(state.chainId, state.lockId);
+        const isProcessable =
+          state.status === "Enabled" &&
+          !state.withdrawalConfirmed &&
+          !state.withdrawalFailed &&
+          !this.processingLocks.has(key) &&
+          state.usdValue !== undefined &&
+          state.usdValue > 0;
+
+        if (!isProcessable) {
+          logger.debug(
+            `Lock ${state.lockId} on chain ${state.chainId} not processable:`,
+            {
+              status: state.status,
+              withdrawalConfirmed: state.withdrawalConfirmed,
+              withdrawalFailed: state.withdrawalFailed,
+              isProcessing: this.processingLocks.has(key),
+              usdValue: state.usdValue,
+            }
+          );
+        }
+
+        return isProcessable;
+      }
     );
+
+    logger.debug(
+      `Found ${processableLocks.length} processable locks out of ${this.states.size} total locks`
+    );
+    return processableLocks;
   }
 
   /**
@@ -83,6 +123,13 @@ export class LockStateStore {
    */
   public getLockState(chainId: string, lockId: string): LockState | undefined {
     return this.states.get(this.getLockKey(chainId, lockId));
+  }
+
+  /**
+   * Get all lock states
+   */
+  public getAllStates(): LockState[] {
+    return Array.from(this.states.values());
   }
 
   /**

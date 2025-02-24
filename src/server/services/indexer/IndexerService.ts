@@ -3,6 +3,7 @@ import type { PublicClient, WalletClient } from "viem";
 import type { SupportedChainId } from "../../config/constants.js";
 import { Logger } from "../../utils/logger.js";
 import { TheCompactService } from "../TheCompactService.js";
+import type { LockState, LockStatus } from "./LockStateStore.js";
 import { LockStateStore } from "./LockStateStore.js";
 
 const logger = new Logger("IndexerService");
@@ -213,18 +214,14 @@ export class IndexerService {
           );
 
         // Update state store
-        const existingState = this.stateStore.getLockState(chainId, lockId);
-        this.stateStore.updateLockState({
-          ...existingState,
-          chainId,
+        await this.updateLockState(
+          chainIdNum,
           lockId,
-          tokenAddress: item.tokenAddress,
-          balance: item.balance,
           status,
-          availableAt,
+          item.balance,
           usdValue,
-          lastUpdated: Date.now(),
-        });
+          item.tokenAddress
+        );
 
         logger.debug(`Updated state for lock ${lockId} on chain ${chainId}:`, {
           status,
@@ -239,6 +236,45 @@ export class IndexerService {
         logger.error("Account:", this.account);
       }
     }
+  }
+
+  private async updateLockState(
+    chainId: number,
+    lockId: string,
+    status: LockStatus,
+    balance: string,
+    usdValue: number | undefined,
+    tokenAddress: string
+  ): Promise<void> {
+    logger.debug(
+      `[IndexerService] Updating state for lock ${lockId} on chain ${chainId}`,
+      {
+        status,
+        balance,
+        usdValue,
+        tokenAddress,
+        currentStates: this.stateStore.getAllStates(),
+      }
+    );
+
+    const state: LockState = {
+      chainId: chainId.toString(),
+      lockId,
+      status,
+      balance,
+      usdValue,
+      tokenAddress,
+      withdrawalConfirmed: false,
+      withdrawalFailed: false,
+      lastUpdated: Date.now(),
+    };
+
+    this.stateStore.updateState(chainId, lockId, state);
+
+    logger.debug("[IndexerService] State store after update:", {
+      totalStates: this.stateStore.getAllStates().length,
+      states: this.stateStore.getAllStates(),
+    });
   }
 
   public start(): void {

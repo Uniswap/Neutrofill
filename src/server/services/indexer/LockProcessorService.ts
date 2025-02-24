@@ -28,105 +28,93 @@ export class LockProcessorService {
     this.stateStore = new LockStateStore(account);
   }
 
-  private async monitorTransaction(
-    chainId: number,
-    lockId: string,
-    txHash: `0x${string}`,
-    isEnableTx = false
+  private async isTransactionConfirmed(
+    chainId: number | string,
+    txHash: string
   ): Promise<boolean> {
-    const publicClient = this.compactService.getPublicClient(
-      chainId as SupportedChainId
-    );
-    if (!publicClient) {
-      logger.error(
-        `No public client found for chain ${chainId} while monitoring tx ${txHash}`
-      );
-      return false;
-    }
-
-    const startTime = Date.now();
-    let confirmed = false;
-    let timedOut = false;
-
     try {
-      // Create a timeout promise
-      const timeoutPromise = new Promise((_, reject) => {
-        setTimeout(() => {
-          reject(new Error("Transaction confirmation timeout"));
-        }, LockProcessorService.MAX_CONFIRMATION_WAIT);
-      });
+      const publicClient = this.compactService.getPublicClient(
+        Number(chainId) as SupportedChainId
+      );
+      if (!publicClient) {
+        logger.error(
+          `No public client found for chain ${chainId} while monitoring tx ${txHash}`
+        );
+        return false;
+      }
 
       // Wait for transaction receipt with timeout
       logger.info(`Waiting for transaction ${txHash} confirmation...`);
-      const receipt = (await Promise.race([
-        publicClient.waitForTransactionReceipt({ hash: txHash }),
-        timeoutPromise,
-      ])) as TransactionReceipt;
+      const receipt = await publicClient.waitForTransactionReceipt({
+        hash: txHash as `0x${string}`,
+        timeout: LockProcessorService.MAX_CONFIRMATION_WAIT,
+      });
 
-      confirmed = receipt.status === "success";
-      const duration = Date.now() - startTime;
+      const confirmed = receipt.status === "success";
       logger.info(
-        `Transaction ${txHash} ${confirmed ? "confirmed" : "reverted"} after ${duration}ms`,
+        `Transaction ${txHash} ${confirmed ? "confirmed" : "reverted"}`,
         {
           blockNumber: receipt.blockNumber.toString(),
           gasUsed: receipt.gasUsed.toString(),
           status: receipt.status,
-          duration,
         }
       );
+
+      return confirmed;
     } catch (error) {
-      const duration = Date.now() - startTime;
-      timedOut = duration >= LockProcessorService.MAX_CONFIRMATION_WAIT;
-
-      logger.error(
-        `Error monitoring transaction ${txHash} after ${duration}ms: ${
-          timedOut ? "TIMED OUT" : error
-        }`
-      );
-      confirmed = false;
-    }
-
-    // Update lock state based on confirmation
-    const state = this.stateStore.getLockState(chainId.toString(), lockId);
-    if (!state) {
-      logger.warn(
-        `Lock ${lockId} state not found while updating confirmation status`
-      );
+      logger.error(`Error monitoring transaction ${txHash}:`, error);
       return false;
     }
+  }
+
+  private async monitorTransaction(
+    state: LockState,
+    isEnableTx: boolean,
+    txHash: string,
+    timedOut = false
+  ): Promise<void> {
+    const confirmed = await this.isTransactionConfirmed(state.chainId, txHash);
 
     if (isEnableTx) {
       if (!confirmed) {
-        this.stateStore.updateLockState({
+        this.stateStore.updateState(Number(state.chainId), state.lockId, {
           ...state,
+          tokenAddress: state.tokenAddress,
           status: "Disabled",
           enableTxSubmitted: false,
+          enableTxHash: undefined,
+          lastUpdated: Date.now(),
         });
       } else {
-        this.stateStore.updateLockState({
+        this.stateStore.updateState(Number(state.chainId), state.lockId, {
           ...state,
+          tokenAddress: state.tokenAddress,
           status: "Enabled",
           enableTxSubmitted: true,
+          enableTxConfirmed: true,
+          lastUpdated: Date.now(),
         });
       }
     } else {
       if (!confirmed) {
-        this.stateStore.updateLockState({
+        this.stateStore.updateState(Number(state.chainId), state.lockId, {
           ...state,
+          tokenAddress: state.tokenAddress,
           withdrawalFailed: true,
           withdrawalFailedReason: timedOut ? "TIMEOUT" : "REVERTED",
-          lastWithdrawalAttempt: Date.now(),
+          withdrawalTxHash: undefined,
+          lastUpdated: Date.now(),
         });
       } else {
-        this.stateStore.updateLockState({
+        this.stateStore.updateState(Number(state.chainId), state.lockId, {
           ...state,
+          tokenAddress: state.tokenAddress,
           withdrawalConfirmed: true,
           withdrawalConfirmedAt: Date.now(),
+          lastUpdated: Date.now(),
         });
       }
     }
-
-    return confirmed;
   }
 
   private async processLock(state: LockState): Promise<void> {
@@ -161,21 +149,18 @@ export class LockProcessorService {
           BigInt(lockId)
         );
 
-        this.stateStore.updateLockState({
+        this.stateStore.updateState(Number(state.chainId), state.lockId, {
           ...state,
+          tokenAddress: state.tokenAddress,
           status: "Pending",
           enableTxSubmitted: true,
+          enableTxHash: hash,
           availableAt,
+          lastUpdated: Date.now(),
         });
 
         // Monitor enable transaction
-        const confirmed = await this.monitorTransaction(
-          chainIdNum,
-          lockId,
-          hash,
-          true
-        );
-        if (!confirmed) return;
+        await this.monitorTransaction(state, true, hash);
       }
 
       // Execute withdrawal if enabled
@@ -191,15 +176,17 @@ export class LockProcessorService {
           BigInt(balance)
         );
 
-        this.stateStore.updateLockState({
+        this.stateStore.updateState(Number(state.chainId), state.lockId, {
           ...state,
+          tokenAddress: state.tokenAddress,
           withdrawalTxHash: hash,
           withdrawalTxSubmitted: true,
           lastWithdrawalAttempt: Date.now(),
+          lastUpdated: Date.now(),
         });
 
         // Monitor withdrawal transaction
-        await this.monitorTransaction(chainIdNum, lockId, hash);
+        await this.monitorTransaction(state, false, hash);
       }
     } catch (error) {
       logger.error(
@@ -218,13 +205,30 @@ export class LockProcessorService {
 
       // Get all processable locks
       const locks = this.stateStore.getProcessableLocks();
+      logger.debug(`Found ${locks.length} processable locks`);
 
       // Process each lock sequentially
       for (const lock of locks) {
+        logger.debug(
+          `Attempting to process lock ${lock.lockId} on chain ${lock.chainId}`,
+          {
+            status: lock.status,
+            balance: lock.balance,
+            usdValue: lock.usdValue,
+          }
+        );
+
         if (
           this.stateStore.tryAcquireProcessingLock(lock.chainId, lock.lockId)
         ) {
+          logger.debug(
+            `Acquired processing lock for ${lock.lockId} on chain ${lock.chainId}`
+          );
           await this.processLock(lock);
+        } else {
+          logger.debug(
+            `Failed to acquire processing lock for ${lock.lockId} on chain ${lock.chainId}`
+          );
         }
       }
     } catch (error) {
