@@ -168,7 +168,7 @@ const SUPPORTED_TRIBUNAL_ADDRESSES = SUPPORTED_ARBITER_ADDRESSES;
 
 // Initialize indexer and processor services
 const indexerService = new IndexerService(
-  process.env.INDEXER_URL || "http://localhost:4000",
+  process.env.COMPACT_INDEXER || "https://the-compact-indexer-2.ponder-dev.com",
   account.address,
   publicClients,
   walletClients

@@ -76,9 +76,14 @@ This will:
 
 ### Production
 
-Start the production server:
+Start the production server in production mode:
 ```bash
 npm start
+```
+
+Or start the production server with debug logs enabled:
+```bash
+npm start:debug
 ```
 
 ## Configuration
