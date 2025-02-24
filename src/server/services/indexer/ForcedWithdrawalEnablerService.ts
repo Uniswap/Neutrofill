@@ -33,17 +33,17 @@ export class ForcedWithdrawalEnablerService {
     return `${chainId}:${lockId}`;
   }
 
-  private canAttemptEnable(chainId: number | string, lockId: string): boolean {
-    const key = this.getLockKey(chainId, lockId);
-    const lastAttempt = this.enableAttempts.get(key);
+  private canAttemptEnable(state: LockState): boolean {
+    const key = this.getLockKey(state.chainId, state.lockId);
+    const lastAttempt = state.availableAt;
     const now = Date.now();
 
     if (!lastAttempt) return true;
     return now - lastAttempt >= ForcedWithdrawalEnablerService.ENABLE_COOLDOWN;
   }
 
-  private markEnableAttempt(chainId: number | string, lockId: string): void {
-    const key = this.getLockKey(chainId, lockId);
+  private markEnableAttempt(state: LockState): void {
+    const key = this.getLockKey(state.chainId, state.lockId);
     this.enableAttempts.set(key, Date.now());
   }
 
@@ -117,6 +117,8 @@ export class ForcedWithdrawalEnablerService {
 
   private async processLock(state: LockState): Promise<void> {
     try {
+      const chainIdNum = Number(state.chainId) as SupportedChainId;
+
       // Skip if already withdrawn
       if (state.status === "Withdrawn") {
         logger.debug(
@@ -133,17 +135,15 @@ export class ForcedWithdrawalEnablerService {
         return;
       }
 
-      const chainIdNum = Number(state.chainId) as SupportedChainId;
-
-      // Check cooldown period before any further processing
-      if (!this.canAttemptEnable(state.chainId, state.lockId)) {
-        logger.info(
+      // Check if we're in cooldown period
+      if (!this.canAttemptEnable(state)) {
+        logger.debug(
           `[ForcedWithdrawalEnablerService] Skipping enable attempt for lock ${state.lockId} on chain ${state.chainId} - in cooldown period`
         );
         return;
       }
 
-      // Sanity check the on-chain status before submitting a transaction
+      // Check on-chain status
       const { status: onChainStatus } =
         await this.compactService.getForcedWithdrawalStatus(
           chainIdNum,
@@ -166,6 +166,21 @@ export class ForcedWithdrawalEnablerService {
         return;
       }
 
+      // If pending on-chain, update our state and wait
+      if (onChainStatus === "Pending") {
+        logger.debug(
+          `[ForcedWithdrawalEnablerService] Lock ${state.lockId} on chain ${state.chainId} is pending enablement`
+        );
+        this.stateStore.updateState(Number(state.chainId), state.lockId, {
+          ...state,
+          tokenAddress: state.tokenAddress,
+          status: "Processing",
+          availableAt: Date.now(),
+          lastUpdated: Date.now(),
+        });
+        return;
+      }
+
       // Only proceed with enablement if status is Disabled
       if (onChainStatus !== "Disabled") {
         logger.warn(
@@ -174,12 +189,10 @@ export class ForcedWithdrawalEnablerService {
         return;
       }
 
+      // Attempt to enable forced withdrawal
       logger.info(
         `[ForcedWithdrawalEnablerService] Attempting to enable forced withdrawal for lock ${state.lockId} on chain ${state.chainId}`
       );
-
-      // Mark the enable attempt before making the call
-      this.markEnableAttempt(state.chainId, state.lockId);
 
       const hash = await this.compactService.enableForcedWithdrawal(
         chainIdNum,
@@ -190,13 +203,14 @@ export class ForcedWithdrawalEnablerService {
         `[ForcedWithdrawalEnablerService] Submitted enable transaction ${hash} for chain ${chainIdNum} lock ${state.lockId}`
       );
 
-      // Update state with transaction hash
+      // Update state with transaction hash and attempt time
       this.stateStore.updateState(Number(state.chainId), state.lockId, {
         ...state,
         tokenAddress: state.tokenAddress,
         status: "Processing",
-        enableTxSubmitted: true,
+        availableAt: Date.now(),
         enableTxHash: hash,
+        enableTxSubmitted: true,
         lastUpdated: Date.now(),
       });
 
@@ -207,10 +221,12 @@ export class ForcedWithdrawalEnablerService {
         `[ForcedWithdrawalEnablerService] Error processing lock ${state.lockId} on chain ${state.chainId}:`,
         error
       );
-      // Update state to mark as failed
+      // Update state to mark as failed and record attempt time
       this.stateStore.updateState(Number(state.chainId), state.lockId, {
         ...state,
+        tokenAddress: state.tokenAddress,
         status: "Failed",
+        availableAt: Date.now(),
         lastUpdated: Date.now(),
       });
     } finally {
