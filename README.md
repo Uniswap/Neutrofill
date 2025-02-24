@@ -83,7 +83,7 @@ npm start
 
 Or start the production server with debug logs enabled:
 ```bash
-npm start:debug
+npm run start:debug
 ```
 
 ## Configuration
