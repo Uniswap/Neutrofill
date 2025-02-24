@@ -153,7 +153,7 @@ export class ForcedWithdrawalEnablerService {
 
       // If already enabled on-chain but not in our state, update our state
       if (onChainStatus === "Enabled") {
-        logger.info(
+        logger.debug(
           `[ForcedWithdrawalEnablerService] Found lock ${state.lockId} already enabled on-chain, updating local state`
         );
         this.stateStore.updateState(Number(state.chainId), state.lockId, {

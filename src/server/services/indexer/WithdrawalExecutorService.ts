@@ -11,16 +11,6 @@ import type { LockState, LockStateStore } from "./LockStateStore.js";
 
 const logger = new Logger("WithdrawalExecutorService");
 
-const lockAbi = [
-  {
-    inputs: [{ type: "uint256", name: "amount" }],
-    name: "withdraw",
-    outputs: [],
-    stateMutability: "nonpayable",
-    type: "function",
-  },
-] as const;
-
 const MIN_USD_VALUE = 1;
 
 /**
@@ -163,21 +153,11 @@ export class WithdrawalExecutorService {
         { balance: state.balance, usdValue: state.usdValue }
       );
 
-      const walletClient = this.walletClients.get(chainIdNum);
-      if (!walletClient) {
-        throw new Error(`No wallet client found for chain ${chainIdNum}`);
-      }
-
-      const writeParams: WriteContractParameters = {
-        address: state.lockId as `0x${string}`,
-        abi: lockAbi,
-        functionName: "withdraw",
-        args: [BigInt(state.balance)],
-        chain: null,
-        account: this.account,
-      };
-
-      const hash = await walletClient.writeContract(writeParams);
+      const hash = await this.compactService.executeForcedWithdrawal(
+        chainIdNum,
+        BigInt(state.lockId),
+        BigInt(state.balance)
+      );
 
       logger.info(
         `[WithdrawalExecutorService] Submitted withdrawal transaction ${hash} for chain ${chainIdNum} lock ${state.lockId}`
