@@ -7,7 +7,7 @@ import type {
 import type { SupportedChainId } from "../../config/constants.js";
 import { Logger } from "../../utils/logger.js";
 import { TheCompactService } from "../TheCompactService.js";
-import { type LockState, LockStateStore } from "./LockStateStore.js";
+import type { LockState, LockStateStore } from "./LockStateStore.js";
 
 const logger = new Logger("LockProcessorService");
 
@@ -44,11 +44,12 @@ export class LockProcessorService {
   constructor(
     account: Address,
     publicClients: Record<SupportedChainId, PublicClient>,
-    walletClients: Record<SupportedChainId, WalletClient>
+    walletClients: Record<SupportedChainId, WalletClient>,
+    stateStore: LockStateStore
   ) {
     this.account = account;
     this.compactService = new TheCompactService(publicClients, walletClients);
-    this.stateStore = new LockStateStore(account);
+    this.stateStore = stateStore;
     this.walletClients = new Map(
       Object.entries(walletClients).map(([chainId, client]) => [
         Number(chainId) as SupportedChainId,

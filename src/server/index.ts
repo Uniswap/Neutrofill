@@ -25,6 +25,7 @@ import { TokenBalanceService } from "./services/balance/TokenBalanceService.js";
 import { AggregateBalanceService } from "./services/balance/AggregateBalanceService.js";
 import { IndexerService } from "./services/indexer/IndexerService.js";
 import { LockProcessorService } from "./services/indexer/LockProcessorService.js";
+import { LockStateStore } from "./services/indexer/LockStateStore.js"; // Import LockStateStore
 import { WebSocketManager } from "./services/websocket/WebSocketManager.js";
 import type { BroadcastRequest } from "./types/broadcast.js";
 import { deriveClaimHash } from "./utils.js";
@@ -156,6 +157,25 @@ const aggregateBalanceService = new AggregateBalanceService(
   priceService
 );
 
+// Initialize shared state store
+const lockStateStore = new LockStateStore(account.address);
+
+// Initialize indexer and processor services
+const indexerService = new IndexerService(
+  process.env.COMPACT_INDEXER || "https://the-compact-indexer-2.ponder-dev.com",
+  account.address,
+  publicClients,
+  walletClients,
+  lockStateStore
+);
+
+const lockProcessorService = new LockProcessorService(
+  account.address,
+  publicClients,
+  walletClients,
+  lockStateStore
+);
+
 // Supported addresses for arbiters and tribunals per chain
 const SUPPORTED_ARBITER_ADDRESSES: Record<SupportedChainId, string> = {
   1: "0xDfd41e6E2e08e752f464084F5C11619A3c950237", // Ethereum
@@ -165,20 +185,6 @@ const SUPPORTED_ARBITER_ADDRESSES: Record<SupportedChainId, string> = {
 } as const;
 
 const SUPPORTED_TRIBUNAL_ADDRESSES = SUPPORTED_ARBITER_ADDRESSES;
-
-// Initialize indexer and processor services
-const indexerService = new IndexerService(
-  process.env.COMPACT_INDEXER || "https://the-compact-indexer-2.ponder-dev.com",
-  account.address,
-  publicClients,
-  walletClients
-);
-
-const lockProcessorService = new LockProcessorService(
-  account.address,
-  publicClients,
-  walletClients
-);
 
 // Set up event listeners for balance updates
 tokenBalanceService.on(

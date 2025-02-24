@@ -4,7 +4,7 @@ import type { SupportedChainId } from "../../config/constants.js";
 import { Logger } from "../../utils/logger.js";
 import { TheCompactService } from "../TheCompactService.js";
 import type { LockState, LockStatus } from "./LockStateStore.js";
-import { LockStateStore } from "./LockStateStore.js";
+import type { LockStateStore } from "./LockStateStore.js";
 
 const logger = new Logger("IndexerService");
 
@@ -71,12 +71,13 @@ export class IndexerService {
     indexerUrl: string,
     account: Address,
     publicClients: Record<SupportedChainId, PublicClient>,
-    walletClients: Record<SupportedChainId, WalletClient>
+    walletClients: Record<SupportedChainId, WalletClient>,
+    stateStore: LockStateStore
   ) {
     this.indexerUrl = indexerUrl;
     this.account = account;
     this.compactService = new TheCompactService(publicClients, walletClients);
-    this.stateStore = new LockStateStore(account);
+    this.stateStore = stateStore;
   }
 
   private async getEthPrice(): Promise<number> {
