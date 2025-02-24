@@ -64,6 +64,11 @@ export class LockStateStore {
    * Get all locks that need processing (enabled but not withdrawn)
    */
   public getProcessableLocks(): LockState[] {
+    logger.debug("[LockStateStore] Getting processable locks from states:", {
+      totalStates: this.states.size,
+      states: Array.from(this.states.entries()),
+    });
+
     const processableLocks = Array.from(this.states.values()).filter(
       (state) => {
         const key = this.getLockKey(state.chainId, state.lockId);
@@ -73,28 +78,34 @@ export class LockStateStore {
           !state.withdrawalFailed &&
           !this.processingLocks.has(key) &&
           state.usdValue !== undefined &&
-          state.usdValue > 0;
+          state.usdValue > 0 &&
+          state.balance !== "0";
 
-        if (!isProcessable) {
-          logger.debug(
-            `Lock ${state.lockId} on chain ${state.chainId} not processable:`,
-            {
-              status: state.status,
-              withdrawalConfirmed: state.withdrawalConfirmed,
-              withdrawalFailed: state.withdrawalFailed,
-              isProcessing: this.processingLocks.has(key),
-              usdValue: state.usdValue,
-            }
-          );
-        }
+        logger.debug(
+          `[LockStateStore] Lock ${state.lockId} on chain ${state.chainId} processable: ${isProcessable}`,
+          {
+            status: state.status,
+            balance: state.balance,
+            usdValue: state.usdValue,
+            withdrawalConfirmed: state.withdrawalConfirmed,
+            withdrawalFailed: state.withdrawalFailed,
+            isProcessing: this.processingLocks.has(key),
+          }
+        );
 
         return isProcessable;
       }
     );
 
     logger.debug(
-      `Found ${processableLocks.length} processable locks out of ${this.states.size} total locks`
+      `[LockStateStore] Found ${processableLocks.length} processable locks out of ${this.states.size} total locks`
     );
+    if (processableLocks.length > 0) {
+      logger.debug("[LockStateStore] Processable locks:", {
+        locks: processableLocks,
+      });
+    }
+
     return processableLocks;
   }
 

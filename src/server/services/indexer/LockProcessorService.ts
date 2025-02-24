@@ -1,19 +1,42 @@
-import type { Address, PublicClient, WalletClient } from "viem";
+import type {
+  Address,
+  PublicClient,
+  WalletClient,
+  WriteContractParameters,
+} from "viem";
 import type { SupportedChainId } from "../../config/constants.js";
 import { Logger } from "../../utils/logger.js";
 import { TheCompactService } from "../TheCompactService.js";
-import type { LockState } from "./LockStateStore.js";
-import { LockStateStore } from "./LockStateStore.js";
-import type { TransactionReceipt } from "viem";
+import { type LockState, LockStateStore } from "./LockStateStore.js";
 
 const logger = new Logger("LockProcessorService");
 
-// Minimum USD value to trigger a withdrawal
+const lockAbi = [
+  {
+    inputs: [],
+    name: "enableWithdrawals",
+    outputs: [],
+    stateMutability: "nonpayable",
+    type: "function",
+  },
+  {
+    inputs: [{ type: "uint256", name: "amount" }],
+    name: "withdraw",
+    outputs: [],
+    stateMutability: "nonpayable",
+    type: "function",
+  },
+] as const;
+
 const MIN_USD_VALUE = 1;
 
+/**
+ * Service that processes resource locks by enabling withdrawals and executing withdrawals
+ */
 export class LockProcessorService {
   private readonly compactService: TheCompactService;
   private readonly stateStore: LockStateStore;
+  private readonly walletClients: Map<SupportedChainId, WalletClient>;
   private readonly account: Address;
   private intervalId?: NodeJS.Timeout;
   private static readonly MAX_CONFIRMATION_WAIT = 10 * 60 * 1000; // 10 minutes
@@ -26,6 +49,12 @@ export class LockProcessorService {
     this.account = account;
     this.compactService = new TheCompactService(publicClients, walletClients);
     this.stateStore = new LockStateStore(account);
+    this.walletClients = new Map(
+      Object.entries(walletClients).map(([chainId, client]) => [
+        Number(chainId) as SupportedChainId,
+        client,
+      ])
+    );
   }
 
   private async isTransactionConfirmed(
@@ -118,44 +147,50 @@ export class LockProcessorService {
   }
 
   private async processLock(state: LockState): Promise<void> {
-    const { chainId, lockId, tokenAddress, balance, usdValue } = state;
-
     try {
+      logger.debug(
+        `[LockProcessorService] Processing lock ${state.lockId} on chain ${state.chainId}`,
+        {
+          state,
+        }
+      );
+
+      const chainIdNum = Number(state.chainId) as SupportedChainId;
+
       // Skip if value too low
-      if (!usdValue || usdValue < MIN_USD_VALUE) {
+      if (!state.usdValue || state.usdValue < MIN_USD_VALUE) {
         logger.debug(
-          `Skipping withdrawal for lock ${lockId} on chain ${chainId} - value too low`,
-          { usdValue, minimum: MIN_USD_VALUE }
+          `[LockProcessorService] Skipping withdrawal for lock ${state.lockId} on chain ${state.chainId} - value too low`,
+          { usdValue: state.usdValue, minimum: MIN_USD_VALUE }
         );
         return;
       }
 
-      // Check if withdrawal is enabled
-      const chainIdNum = Number(chainId) as SupportedChainId;
-      const { status, availableAt } =
-        await this.compactService.getForcedWithdrawalStatus(
-          chainIdNum,
-          this.account,
-          BigInt(lockId)
-        );
+      // Check if withdrawals are enabled
+      const status = (await this.isWithdrawalEnabled(chainIdNum))
+        ? "Enabled"
+        : "Disabled";
 
       if (status === "Disabled") {
         logger.info(
-          `Attempting to enable forced withdrawal for lock ${lockId} on chain ${chainId}`
+          `[LockProcessorService] Attempting to enable forced withdrawal for lock ${state.lockId} on chain ${state.chainId}`
         );
 
         const hash = await this.compactService.enableForcedWithdrawal(
           chainIdNum,
-          BigInt(lockId)
+          BigInt(state.lockId)
         );
 
+        logger.info(
+          `[LockProcessorService] Submitted enable transaction ${hash} for chain ${chainIdNum} lock ${state.lockId}`
+        );
+
+        // Update state with transaction hash
         this.stateStore.updateState(Number(state.chainId), state.lockId, {
           ...state,
-          tokenAddress: state.tokenAddress,
-          status: "Pending",
+          status: "Processing",
           enableTxSubmitted: true,
           enableTxHash: hash,
-          availableAt,
           lastUpdated: Date.now(),
         });
 
@@ -166,35 +201,57 @@ export class LockProcessorService {
       // Execute withdrawal if enabled
       if (status === "Enabled") {
         logger.info(
-          `Executing withdrawal for lock ${lockId} on chain ${chainId}`,
-          { balance, usdValue }
+          `[LockProcessorService] Executing withdrawal for lock ${state.lockId} on chain ${state.chainId}`,
+          { balance: state.balance, usdValue: state.usdValue }
         );
 
-        const hash = await this.compactService.executeForcedWithdrawal(
-          chainIdNum,
-          BigInt(lockId),
-          BigInt(balance)
+        const walletClient = this.walletClients.get(chainIdNum);
+        if (!walletClient) {
+          throw new Error(`No wallet client found for chain ${chainIdNum}`);
+        }
+
+        const writeParams: WriteContractParameters = {
+          address: state.lockId as `0x${string}`,
+          abi: lockAbi,
+          functionName: "withdraw",
+          args: [BigInt(state.balance)],
+          chain: null,
+          account: this.account,
+        };
+
+        const result = await walletClient.writeContract(writeParams);
+
+        logger.info(
+          `[LockProcessorService] Submitted withdrawal transaction ${result} for chain ${chainIdNum} lock ${state.lockId}`
         );
 
+        // Update state with transaction hash
         this.stateStore.updateState(Number(state.chainId), state.lockId, {
           ...state,
-          tokenAddress: state.tokenAddress,
-          withdrawalTxHash: hash,
+          status: "Withdrawing",
+          withdrawalTxHash: result,
           withdrawalTxSubmitted: true,
-          lastWithdrawalAttempt: Date.now(),
           lastUpdated: Date.now(),
         });
 
         // Monitor withdrawal transaction
-        await this.monitorTransaction(state, false, hash);
+        await this.monitorTransaction(state, false, result);
       }
     } catch (error) {
       logger.error(
-        `Error processing lock ${lockId} on chain ${chainId}:`,
+        `[LockProcessorService] Error processing lock ${state.lockId} on chain ${state.chainId}:`,
         error
       );
+      // Update state to mark as failed
+      this.stateStore.updateState(Number(state.chainId), state.lockId, {
+        ...state,
+        status: "Failed",
+        withdrawalFailed: true,
+        lastUpdated: Date.now(),
+      });
     } finally {
-      this.stateStore.releaseProcessingLock(chainId, lockId);
+      // Release processing lock
+      this.stateStore.releaseProcessingLock(state.chainId, state.lockId);
     }
   }
 
@@ -205,12 +262,14 @@ export class LockProcessorService {
 
       // Get all processable locks
       const locks = this.stateStore.getProcessableLocks();
-      logger.debug(`Found ${locks.length} processable locks`);
+      logger.debug(
+        `[LockProcessorService] Found ${locks.length} processable locks`
+      );
 
       // Process each lock sequentially
       for (const lock of locks) {
         logger.debug(
-          `Attempting to process lock ${lock.lockId} on chain ${lock.chainId}`,
+          `[LockProcessorService] Attempting to process lock ${lock.lockId} on chain ${lock.chainId}`,
           {
             status: lock.status,
             balance: lock.balance,
@@ -222,17 +281,37 @@ export class LockProcessorService {
           this.stateStore.tryAcquireProcessingLock(lock.chainId, lock.lockId)
         ) {
           logger.debug(
-            `Acquired processing lock for ${lock.lockId} on chain ${lock.chainId}`
+            `[LockProcessorService] Acquired processing lock for ${lock.lockId} on chain ${lock.chainId}`
           );
           await this.processLock(lock);
         } else {
           logger.debug(
-            `Failed to acquire processing lock for ${lock.lockId} on chain ${lock.chainId}`
+            `[LockProcessorService] Failed to acquire processing lock for ${lock.lockId} on chain ${lock.chainId}`
           );
         }
       }
     } catch (error) {
-      logger.error("Error in processAvailableLocks:", error);
+      logger.error(
+        "[LockProcessorService] Error in processAvailableLocks:",
+        error
+      );
+    }
+  }
+
+  private async isWithdrawalEnabled(chainId: number): Promise<boolean> {
+    try {
+      const { status } = await this.compactService.getForcedWithdrawalStatus(
+        chainId as SupportedChainId,
+        this.account,
+        BigInt(0) // Just need to check global status
+      );
+      return status === "Enabled";
+    } catch (error) {
+      logger.error(
+        `[LockProcessorService] Error checking withdrawal status for chain ${chainId}:`,
+        error
+      );
+      return false;
     }
   }
 
