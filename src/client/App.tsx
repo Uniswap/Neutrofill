@@ -1,6 +1,10 @@
 import React, { useEffect, useState } from "react";
 import { WebSocketClient } from "./websocket";
-import { formatEthBalance, formatUsdcBalance } from "./utils";
+import {
+  formatEthBalance,
+  formatUsdcBalance,
+  formatTokenAmount,
+} from "./utils";
 
 interface FillRequest {
   request: unknown;
@@ -23,12 +27,54 @@ interface EthPrices {
   };
 }
 
+interface AggregateBalances {
+  chainBalances: Record<
+    number,
+    {
+      tokens: {
+        ETH: string;
+        WETH: string;
+        USDC: string;
+      };
+      usd: {
+        ETH: number;
+        WETH: number;
+        USDC: number;
+        total: number;
+      };
+      percentageOfTotal: number;
+    }
+  >;
+  tokenBalances: {
+    tokens: {
+      ETH: string;
+      WETH: string;
+      USDC: string;
+    };
+    usd: {
+      ETH: number;
+      WETH: number;
+      USDC: number;
+    };
+    percentages: {
+      ETH: number;
+      WETH: number;
+      USDC: number;
+    };
+  };
+  totalBalance: number;
+  lastUpdated: number;
+  timestamp: string;
+}
+
 type ConnectionStatus = "connecting" | "connected" | "disconnected";
 
 export function App() {
   const [serverAccount, setServerAccount] = useState<string | null>(null);
   const [tokenBalances, setTokenBalances] = useState<TokenBalances>({});
   const [ethPrices, setEthPrices] = useState<EthPrices>({});
+  const [aggregateBalances, setAggregateBalances] =
+    useState<AggregateBalances | null>(null);
   const [fillRequests, setFillRequests] = useState<FillRequest[]>([]);
   const [wsStatus, setWsStatus] = useState<ConnectionStatus>("connecting");
 
@@ -63,6 +109,10 @@ export function App() {
           timestamp: new Date().toISOString(),
         },
       }));
+    };
+
+    ws.onAggregateBalances = (newAggregateBalances: AggregateBalances) => {
+      setAggregateBalances(newAggregateBalances);
     };
 
     ws.onFillRequest = (
@@ -145,80 +195,197 @@ export function App() {
               <h2 className="text-lg font-medium text-gray-200 mb-4">
                 Prices & Balances
               </h2>
-              <div className="overflow-x-auto">
-                <table className="w-full">
-                  <thead>
-                    <tr className="text-left border-b border-gray-800">
-                      <th className="py-2 font-medium text-gray-400">Chain</th>
-                      {orderedChainIds.map((chainId) => (
-                        <th
-                          key={chainId}
-                          className="py-2 font-medium text-gray-200"
-                        >
-                          {chainNames[chainId]}
+              <div className="container mx-auto p-4">
+                <h1 className="text-2xl font-bold mb-4">Prices & Balances</h1>
+                <div className="overflow-x-auto">
+                  <table className="w-full">
+                    <thead>
+                      <tr className="text-left border-b border-gray-800">
+                        <th className="py-2 font-medium text-gray-400">
+                          Chain
                         </th>
-                      ))}
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-gray-800">
-                    <tr>
-                      <td className="py-3 font-medium text-gray-400">
-                        ETH Price
-                      </td>
-                      {orderedChainIds.map((chainId) => (
-                        <td key={chainId} className="py-3">
-                          <span className="font-mono text-gray-200">
-                            {ethPrices[chainId]?.price
-                              ? `$${Number.parseFloat(ethPrices[chainId].price).toFixed(2)}`
-                              : "-"}
-                          </span>
+                        {[1, 10, 130, 8453].map((chainId) => (
+                          <th
+                            key={chainId}
+                            className="py-2 font-medium text-gray-200"
+                          >
+                            {chainId === 1
+                              ? "Ethereum"
+                              : chainId === 10
+                                ? "Optimism"
+                                : chainId === 130
+                                  ? "Unichain"
+                                  : "Base"}
+                          </th>
+                        ))}
+                        <th className="py-2 font-medium text-gray-200">
+                          Total Balance
+                        </th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-gray-800">
+                      <tr>
+                        <td className="py-3 font-medium text-gray-400">
+                          ETH Price
                         </td>
-                      ))}
-                    </tr>
-                    <tr>
-                      <td className="py-3 font-medium text-gray-400">
-                        ETH Balance
-                      </td>
-                      {orderedChainIds.map((chainId) => (
-                        <td key={chainId} className="py-3">
+                        {[1, 10, 130, 8453].map((chainId) => (
+                          <td key={chainId} className="py-3">
+                            <span className="font-mono text-gray-200">
+                              $
+                              {ethPrices[chainId]?.price
+                                ? Number(ethPrices[chainId].price).toFixed(2)
+                                : "-"}
+                            </span>
+                          </td>
+                        ))}
+                        <td className="py-3">
+                          <span className="font-mono text-gray-200">-</span>
+                        </td>
+                      </tr>
+                      <tr>
+                        <td className="py-3 font-medium text-gray-400">
+                          ETH Balance
+                        </td>
+                        {[1, 10, 130, 8453].map((chainId) => (
+                          <td key={chainId} className="py-3">
+                            <span className="font-mono text-gray-200">
+                              {aggregateBalances?.chainBalances[chainId]?.tokens
+                                .ETH
+                                ? formatEthBalance(
+                                    aggregateBalances.chainBalances[chainId]
+                                      .tokens.ETH
+                                  )
+                                : "-"}
+                            </span>
+                          </td>
+                        ))}
+                        <td className="py-3">
                           <span className="font-mono text-gray-200">
                             {formatEthBalance(
-                              tokenBalances[chainId]?.balances?.ETH ?? "-"
+                              aggregateBalances?.tokenBalances.tokens.ETH ?? "0"
+                            )}
+                            {aggregateBalances?.tokenBalances.percentages.ETH >
+                              0 && (
+                              <span className="text-gray-500 ml-1">
+                                (
+                                {aggregateBalances.tokenBalances.percentages.ETH.toFixed(
+                                  1
+                                )}
+                                %)
+                              </span>
                             )}
                           </span>
                         </td>
-                      ))}
-                    </tr>
-                    <tr>
-                      <td className="py-3 font-medium text-gray-400">
-                        WETH Balance
-                      </td>
-                      {orderedChainIds.map((chainId) => (
-                        <td key={chainId} className="py-3">
+                      </tr>
+                      <tr>
+                        <td className="py-3 font-medium text-gray-400">
+                          WETH Balance
+                        </td>
+                        {[1, 10, 130, 8453].map((chainId) => (
+                          <td key={chainId} className="py-3">
+                            <span className="font-mono text-gray-200">
+                              {aggregateBalances?.chainBalances[chainId]?.tokens
+                                .WETH
+                                ? formatEthBalance(
+                                    aggregateBalances.chainBalances[chainId]
+                                      .tokens.WETH
+                                  )
+                                : "-"}
+                            </span>
+                          </td>
+                        ))}
+                        <td className="py-3">
                           <span className="font-mono text-gray-200">
                             {formatEthBalance(
-                              tokenBalances[chainId]?.balances?.WETH ?? "-"
+                              aggregateBalances?.tokenBalances.tokens.WETH ??
+                                "0"
+                            )}
+                            {aggregateBalances?.tokenBalances.percentages.WETH >
+                              0 && (
+                              <span className="text-gray-500 ml-1">
+                                (
+                                {aggregateBalances.tokenBalances.percentages.WETH.toFixed(
+                                  1
+                                )}
+                                %)
+                              </span>
                             )}
                           </span>
                         </td>
-                      ))}
-                    </tr>
-                    <tr>
-                      <td className="py-3 font-medium text-gray-400">
-                        USDC Balance
-                      </td>
-                      {orderedChainIds.map((chainId) => (
-                        <td key={chainId} className="py-3">
+                      </tr>
+                      <tr>
+                        <td className="py-3 font-medium text-gray-400">
+                          USDC Balance
+                        </td>
+                        {[1, 10, 130, 8453].map((chainId) => (
+                          <td key={chainId} className="py-3">
+                            <span className="font-mono text-gray-200">
+                              {aggregateBalances?.chainBalances[chainId]?.tokens
+                                .USDC
+                                ? formatUsdcBalance(
+                                    aggregateBalances.chainBalances[chainId]
+                                      .tokens.USDC
+                                  )
+                                : "-"}
+                            </span>
+                          </td>
+                        ))}
+                        <td className="py-3">
                           <span className="font-mono text-gray-200">
                             {formatUsdcBalance(
-                              tokenBalances[chainId]?.balances?.USDC ?? "-"
+                              aggregateBalances?.tokenBalances.tokens.USDC ??
+                                "0"
+                            )}
+                            {aggregateBalances?.tokenBalances.percentages.USDC >
+                              0 && (
+                              <span className="text-gray-500 ml-1">
+                                (
+                                {aggregateBalances.tokenBalances.percentages.USDC.toFixed(
+                                  1
+                                )}
+                                %)
+                              </span>
                             )}
                           </span>
                         </td>
-                      ))}
-                    </tr>
-                  </tbody>
-                </table>
+                      </tr>
+                      <tr>
+                        <td className="py-3 font-medium text-gray-400">
+                          Total Value (USD)
+                        </td>
+                        {[1, 10, 130, 8453].map((chainId) => (
+                          <td key={chainId} className="py-3">
+                            <span className="font-mono text-gray-200">
+                              $
+                              {Number(
+                                aggregateBalances?.chainBalances[chainId]?.usd
+                                  .total ?? 0
+                              ).toFixed(2)}
+                              {aggregateBalances?.chainBalances[chainId]
+                                ?.percentageOfTotal > 0 && (
+                                <span className="text-gray-500 ml-1">
+                                  (
+                                  {aggregateBalances.chainBalances[
+                                    chainId
+                                  ].percentageOfTotal.toFixed(1)}
+                                  %)
+                                </span>
+                              )}
+                            </span>
+                          </td>
+                        ))}
+                        <td className="py-3">
+                          <span className="font-mono text-gray-200">
+                            $
+                            {Number(
+                              aggregateBalances?.totalBalance ?? 0
+                            ).toFixed(2)}
+                          </span>
+                        </td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
               </div>
             </div>
           </div>

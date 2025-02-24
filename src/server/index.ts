@@ -22,6 +22,7 @@ import {
 import { TheCompactService } from "./services/TheCompactService.js";
 import { PriceService } from "./services/price/PriceService.js";
 import { TokenBalanceService } from "./services/balance/TokenBalanceService.js";
+import { AggregateBalanceService } from "./services/balance/AggregateBalanceService.js";
 import { IndexerService } from "./services/indexer/IndexerService.js";
 import { WebSocketManager } from "./services/websocket/WebSocketManager.js";
 import type { BroadcastRequest } from "./types/broadcast.js";
@@ -145,13 +146,15 @@ const indexerService = new IndexerService(
   publicClients,
   walletClients
 );
-const wsManager = new WebSocketManager(server);
-
-// Initialize token balance service
 const tokenBalanceService = new TokenBalanceService(
   account.address,
   publicClients
 );
+const aggregateBalanceService = new AggregateBalanceService(
+  tokenBalanceService,
+  priceService
+);
+const wsManager = new WebSocketManager(server);
 
 // Initialize TheCompactService
 const theCompactService = new TheCompactService(publicClients, walletClients);
@@ -166,9 +169,31 @@ const SUPPORTED_ARBITER_ADDRESSES: Record<SupportedChainId, string> = {
 
 const SUPPORTED_TRIBUNAL_ADDRESSES = SUPPORTED_ARBITER_ADDRESSES;
 
+// Set up event listeners for balance updates
+tokenBalanceService.on(
+  "balance_update",
+  (chainId: number, account, balances) => {
+    wsManager.broadcastTokenBalances(chainId, account, balances);
+  }
+);
+
+// Set up event listeners for price updates
+priceService.on("price_update", (chainId: number, price: string) => {
+  wsManager.broadcastEthPrice(chainId, price);
+});
+
+// Set up event listeners for aggregate balance updates
+aggregateBalanceService.on(
+  "aggregate_balance_update",
+  (aggregateBalances: Record<string, unknown>) => {
+    wsManager.broadcastAggregateBalances(aggregateBalances);
+  }
+);
+
 // Start services
 priceService.start();
 tokenBalanceService.start();
+aggregateBalanceService.start();
 indexerService.start();
 
 // Check and set token approvals for supported chains
@@ -187,10 +212,6 @@ priceService.on("price_update", (chainId: number, price: number) => {
   wsManager.broadcastEthPrice(chainId, price.toString());
 });
 
-tokenBalanceService.on("balance_update", (chainId, account, balances) => {
-  wsManager.broadcastTokenBalances(chainId, account, balances);
-});
-
 // Broadcast initial account info
 wsManager.broadcastAccountUpdate(account.address);
 
@@ -198,6 +219,7 @@ wsManager.broadcastAccountUpdate(account.address);
 process.on("SIGTERM", () => {
   priceService.stop();
   tokenBalanceService.stop();
+  aggregateBalanceService.stop();
   indexerService.stop();
   process.exit(0);
 });
@@ -205,6 +227,7 @@ process.on("SIGTERM", () => {
 process.on("SIGINT", () => {
   priceService.stop();
   tokenBalanceService.stop();
+  aggregateBalanceService.stop();
   indexerService.stop();
   process.exit(0);
 });

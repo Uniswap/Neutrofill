@@ -117,8 +117,9 @@ export class CoinGeckoProvider {
       const { nativeToken } = this.getPlatformInfo(chainId);
       const url = `${this.baseUrl}/simple/price?ids=${nativeToken}&vs_currencies=usd`;
 
-      this.logger.info(`Fetching native token price for chain ${chainId}`);
-      this.logger.info(`CoinGecko request URL: ${url}`);
+      this.logger.debug(
+        `Fetching native token price for chain ${chainId} (CoinGecko request URL: ${url})`
+      );
 
       const data = await this.makeRequest<unknown>(
         url,
@@ -126,7 +127,7 @@ export class CoinGeckoProvider {
       );
       this.validateEthPriceResponse(data, nativeToken);
 
-      this.logger.info(
+      this.logger.debug(
         `Received native token price data: ${JSON.stringify(data)}`
       );
 

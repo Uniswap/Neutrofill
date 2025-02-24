@@ -73,6 +73,10 @@ export class TokenBalanceService extends EventEmitter {
     return this.balances.get(chainId);
   }
 
+  public getClients(): { [chainId: number]: PublicClient } {
+    return this.clients;
+  }
+
   private async updateBalances(): Promise<void> {
     try {
       await Promise.all(

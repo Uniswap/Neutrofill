@@ -11,17 +11,19 @@ const logger = new Logger("IndexerService");
 const MIN_USD_VALUE = 1;
 
 // Token addresses
-const WETH_ADDRESSES: { [chainId: number]: string } = {
+const WETH_ADDRESSES: Record<SupportedChainId, string> = {
   1: "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2",
   10: "0x4200000000000000000000000000000000000006",
+  130: "0x4200000000000000000000000000000000000006",
   8453: "0x4200000000000000000000000000000000000006",
-};
+} as const;
 
-const USDC_ADDRESSES: { [chainId: number]: string } = {
+const USDC_ADDRESSES: Record<SupportedChainId, string> = {
   1: "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48",
   10: "0x0b2C639c533813f4Aa9D7837CAf62653d097Ff85",
+  130: "0x0000000000000000000000000000000000000000", // No USDC on Unichain
   8453: "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
-};
+} as const;
 
 // Price oracle endpoints
 const PRICE_ENDPOINTS = {
@@ -87,8 +89,8 @@ export class IndexerService {
   constructor(
     indexerUrl: string,
     account: Address,
-    publicClients: { [chainId: number]: PublicClient },
-    walletClients: { [chainId: number]: WalletClient }
+    publicClients: Record<SupportedChainId, PublicClient>,
+    walletClients: Record<SupportedChainId, WalletClient>
   ) {
     this.indexerUrl = indexerUrl;
     this.account = account;
@@ -113,26 +115,29 @@ export class IndexerService {
   }
 
   private isEthOrWeth(chainId: number, tokenAddress: string): boolean {
-    const wethAddress = WETH_ADDRESSES[chainId]?.toLowerCase();
-    return Boolean(
+    const chainIdNum = chainId as SupportedChainId;
+    return (
       tokenAddress === "0x0000000000000000000000000000000000000000" ||
-        (wethAddress && tokenAddress.toLowerCase() === wethAddress)
+      tokenAddress.toLowerCase() === WETH_ADDRESSES[chainIdNum]?.toLowerCase()
     );
   }
 
   private isUSDC(chainId: number, tokenAddress: string): boolean {
-    const usdcAddress = USDC_ADDRESSES[chainId]?.toLowerCase();
-    return Boolean(usdcAddress && tokenAddress.toLowerCase() === usdcAddress);
+    const chainIdNum = chainId as SupportedChainId;
+    return (
+      tokenAddress.toLowerCase() === USDC_ADDRESSES[chainIdNum]?.toLowerCase()
+    );
   }
 
   private getTokenInfo(
     chainId: number,
     tokenAddress: string
   ): TokenInfo | null {
-    if (this.isEthOrWeth(chainId, tokenAddress)) {
+    const chainIdNum = chainId as SupportedChainId;
+    if (this.isEthOrWeth(chainIdNum, tokenAddress)) {
       return { decimals: 18 };
     }
-    if (this.isUSDC(chainId, tokenAddress)) {
+    if (this.isUSDC(chainIdNum, tokenAddress)) {
       return { decimals: 6, isUSDC: true };
     }
     return null;
@@ -162,7 +167,7 @@ export class IndexerService {
       return;
     }
 
-    const chainIdNum = Number(chainId);
+    const chainIdNum = Number(chainId) as SupportedChainId;
     const balanceNum = BigInt(balance);
 
     // Skip if balance is 0
@@ -195,7 +200,7 @@ export class IndexerService {
         usdValue = balanceInEth * ethPrice;
       }
 
-      logger.info(
+      logger.debug(
         `Checking withdrawal for lock ${lockId} on chain ${chainId}`,
         {
           balance: balanceNum.toString(),
@@ -279,7 +284,7 @@ export class IndexerService {
     const lockKey = this.getLockKey(chainId, lockId);
     const existingStatus = this.processedLocks.get(lockKey);
 
-    logger.info(
+    logger.debug(
       `Checking forced withdrawal status for lock ${lockId} on chain ${chainId}`,
       { existingStatus }
     );
@@ -302,17 +307,17 @@ export class IndexerService {
 
     try {
       // Check current status
-      logger.info(
+      logger.debug(
         `Fetching current status for lock ${lockId} on chain ${chainId}`
       );
       const { status, availableAt } =
         await this.compactService.getForcedWithdrawalStatus(
-          Number(chainId),
+          Number(chainId) as SupportedChainId,
           this.account,
           BigInt(lockId)
         );
 
-      logger.info(`Got status for lock ${lockId} on chain ${chainId}`, {
+      logger.debug(`Got status for lock ${lockId} on chain ${chainId}`, {
         status,
         availableAt,
       });
@@ -330,7 +335,7 @@ export class IndexerService {
         );
 
         const hash = await this.compactService.enableForcedWithdrawal(
-          Number(chainId),
+          Number(chainId) as SupportedChainId,
           BigInt(lockId)
         );
 
@@ -345,7 +350,7 @@ export class IndexerService {
           `Successfully submitted enableForcedWithdrawal transaction for lock ${lockId} on chain ${chainId}: ${hash}`
         );
       } else {
-        logger.info(
+        logger.debug(
           `Forced withdrawal already ${status.toLowerCase()} for lock ${lockId} on chain ${chainId}`,
           availableAt > 0
             ? { availableAt: new Date(availableAt * 1000).toISOString() }
@@ -383,7 +388,7 @@ export class IndexerService {
         server: this.account.toLowerCase(),
       };
 
-      logger.info(`Polling indexer at ${url}`);
+      logger.debug(`Polling indexer at ${url}`);
 
       const response = await fetch(url, {
         method: "POST",
@@ -411,7 +416,7 @@ export class IndexerService {
 
       if (items.length > 0) {
         for (const item of items) {
-          logger.info(`Resource lock found on chain ${item.chainId}:`, {
+          logger.debug(`Resource lock found on chain ${item.chainId}:`, {
             chainId: item.chainId,
             tokenAddress: item.tokenAddress,
             balance: item.balance,
@@ -448,7 +453,9 @@ export class IndexerService {
     txHash: `0x${string}`
   ): Promise<void> {
     const lockKey = this.getLockKey(chainId.toString(), lockId);
-    const publicClient = this.compactService.getPublicClient(chainId);
+    const publicClient = this.compactService.getPublicClient(
+      chainId as SupportedChainId
+    );
     if (!publicClient) {
       logger.error(
         `No public client found for chain ${chainId} while monitoring tx ${txHash}`

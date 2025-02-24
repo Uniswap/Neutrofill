@@ -1,7 +1,7 @@
 import { type Address, parseAbi, encodeFunctionData } from "viem";
 import type { WalletClient, PublicClient } from "viem";
 import type { SupportedChainId } from "../config/constants.js";
-import { CHAIN_CONFIG } from "../config/constants.js";
+import { CHAIN_CONFIG, CHAIN_PRIORITY_FEES } from "../config/constants.js";
 import { Logger } from "../utils/logger.js";
 
 const logger = new Logger("Approvals");
@@ -76,14 +76,14 @@ export async function checkAndSetTokenApprovals(
           account,
           chain: null,
           maxFeePerGas: (baseFee * 120n) / 100n,
-          maxPriorityFeePerGas: 1n,
+          maxPriorityFeePerGas: CHAIN_PRIORITY_FEES[chainId],
         });
 
         logger.info(
           `Approval transaction sent for ${tokenSymbol} on chain ${chainId}: ${hash}`
         );
       } else {
-        logger.info(
+        logger.debug(
           `${tokenSymbol} already has sufficient approval on chain ${chainId}`
         );
       }

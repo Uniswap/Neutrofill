@@ -20,6 +20,34 @@ export interface PriceUpdate {
   price: string;
 }
 
+export interface TokenBalancesUpdate {
+  type: "token_balances";
+  chainId: number;
+  balances: Record<string, string>;
+}
+
+export interface AggregateBalanceUpdate {
+  type: "aggregate_balance_update";
+  chainBalances: Record<
+    number,
+    {
+      ETH: number;
+      WETH: number;
+      USDC: number;
+      total: number;
+      percentageOfTotal: number;
+    }
+  >;
+  tokenBalances: {
+    ETH: number;
+    WETH: number;
+    USDC: number;
+  };
+  totalBalance: number;
+  lastUpdated: number;
+  timestamp: string;
+}
+
 export interface FillRequestUpdate {
   type: "fill_request_update";
   request: string;
@@ -41,6 +69,8 @@ export type WebSocketMessage =
   | ConnectionUpdate
   | AccountUpdate
   | PriceUpdate
+  | TokenBalancesUpdate
+  | AggregateBalanceUpdate
   | FillRequestUpdate
   | PingMessage
   | PongMessage;
@@ -64,6 +94,26 @@ export class WebSocketClient {
     balances: Record<string, string>
   ) => void;
   public onEthPrice?: (chainId: number, price: string) => void;
+  public onAggregateBalances?: (aggregateBalances: {
+    chainBalances: Record<
+      number,
+      {
+        ETH: number;
+        WETH: number;
+        USDC: number;
+        total: number;
+        percentageOfTotal: number;
+      }
+    >;
+    tokenBalances: {
+      ETH: number;
+      WETH: number;
+      USDC: number;
+    };
+    totalBalance: number;
+    lastUpdated: number;
+    timestamp: string;
+  }) => void;
   public onFillRequest?: (
     request: string,
     willFill: boolean,
@@ -176,10 +226,15 @@ export class WebSocketClient {
         break;
       case "account_update":
         this.onAccountUpdate?.(data.account);
-        this.onTokenBalances?.(data.chainId, data.balances);
         break;
       case "price_update":
         this.onEthPrice?.(data.chainId, data.price);
+        break;
+      case "token_balances":
+        this.onTokenBalances?.(data.chainId, data.balances);
+        break;
+      case "aggregate_balance_update":
+        this.onAggregateBalances?.(data);
         break;
       case "fill_request_update":
         this.onFillRequest?.(data.request, data.willFill, data.reason);

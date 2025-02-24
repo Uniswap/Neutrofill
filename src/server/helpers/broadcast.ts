@@ -12,7 +12,11 @@ import {
 } from "viem";
 import { Logger } from "../utils/logger.js";
 import type { PublicClient, WalletClient, Chain, Transport } from "viem";
-import { type SupportedChainId, CHAIN_CONFIG } from "../config/constants.js";
+import {
+  type SupportedChainId,
+  CHAIN_CONFIG,
+  CHAIN_PRIORITY_FEES,
+} from "../config/constants.js";
 
 const logger = new Logger("BroadcastHelper");
 
@@ -134,12 +138,7 @@ export async function processBroadcastTransaction(
   }
 
   // Calculate simulation priority fee
-  const simulationPriorityFee = derivePriorityFee(
-    simulationSettlement,
-    minimumAmount,
-    baselinePriorityFee,
-    scalingFactor
-  );
+  const simulationPriorityFee = CHAIN_PRIORITY_FEES[chainId];
 
   // Calculate simulation value
   const simulationValue =
@@ -353,12 +352,7 @@ export async function processBroadcastTransaction(
   }
 
   // Calculate final priority fee based on actual settlement amount
-  const priorityFee = derivePriorityFee(
-    settlementAmount,
-    minimumAmount,
-    baselinePriorityFee,
-    scalingFactor
-  );
+  const priorityFee = CHAIN_PRIORITY_FEES[chainId];
 
   // Calculate final value based on mandate token (using chain-specific ETH address)
   const value =

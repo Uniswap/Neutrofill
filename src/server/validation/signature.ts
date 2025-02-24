@@ -9,6 +9,7 @@ import {
 import type { TheCompactService } from "../services/TheCompactService";
 import type { BroadcastRequest } from "../types/broadcast";
 import { Logger } from "../utils/logger.js";
+import type { SupportedChainId } from "../config/constants.js";
 
 const logger = new Logger("SignatureValidation");
 
@@ -84,7 +85,9 @@ export async function verifyBroadcastRequest(
   request: BroadcastRequest,
   theCompactService: TheCompactService
 ): Promise<{ isValid: boolean; isOnchainRegistration: boolean }> {
-  const chainId = Number.parseInt(request.chainId);
+  const chainId = Number.parseInt(
+    request.chainId.toString()
+  ) as SupportedChainId;
   logger.info("Verifying broadcast request:", {
     chainId,
     sponsor: request.compact.sponsor,
@@ -98,7 +101,7 @@ export async function verifyBroadcastRequest(
   });
 
   // Get chain prefix based on chainId
-  const chainPrefix = CHAIN_PREFIXES[chainId as keyof typeof CHAIN_PREFIXES];
+  const chainPrefix = CHAIN_PREFIXES[chainId];
   if (!chainPrefix) {
     throw new Error(`Unsupported chain ID: ${chainId}`);
   }

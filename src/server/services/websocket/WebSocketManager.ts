@@ -138,6 +138,16 @@ export class WebSocketManager {
     });
   }
 
+  public broadcastAggregateBalances(
+    aggregateBalances: Record<string, unknown>
+  ): void {
+    const timestamp = new Date().toISOString();
+    this.broadcast("aggregate_balance_update", {
+      ...aggregateBalances,
+      timestamp,
+    });
+  }
+
   private broadcast(type: string, data: Record<string, unknown>): void {
     const message = JSON.stringify({ type, ...data });
     for (const client of this.clients) {

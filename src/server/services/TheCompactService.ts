@@ -5,6 +5,10 @@ import {
   encodeFunctionData,
 } from "viem";
 import { Logger } from "../utils/logger.js";
+import {
+  type SupportedChainId,
+  CHAIN_PRIORITY_FEES,
+} from "../config/constants.js";
 
 const logger = new Logger("TheCompactService");
 
@@ -88,19 +92,19 @@ export interface ForcedWithdrawalInfo {
 
 export class TheCompactService {
   // Map of chain IDs to their respective clients
-  private readonly publicClients: { [chainId: number]: PublicClient };
-  private readonly walletClients: { [chainId: number]: WalletClient };
+  private readonly publicClients: Record<SupportedChainId, PublicClient>;
+  private readonly walletClients: Record<SupportedChainId, WalletClient>;
 
   constructor(
-    publicClients: { [chainId: number]: PublicClient },
-    walletClients: { [chainId: number]: WalletClient }
+    publicClients: Record<SupportedChainId, PublicClient>,
+    walletClients: Record<SupportedChainId, WalletClient>
   ) {
     this.publicClients = publicClients;
     this.walletClients = walletClients;
   }
 
   async hasConsumedAllocatorNonce(
-    chainId: number,
+    chainId: SupportedChainId,
     nonce: bigint,
     allocator: `0x${string}`
   ): Promise<boolean> {
@@ -120,7 +124,7 @@ export class TheCompactService {
   }
 
   async getRegistrationStatus(
-    chainId: number,
+    chainId: SupportedChainId,
     sponsor: `0x${string}`,
     claimHash: `0x${string}`,
     typehash: `0x${string}`
@@ -141,7 +145,7 @@ export class TheCompactService {
   }
 
   async getForcedWithdrawalStatus(
-    chainId: number,
+    chainId: SupportedChainId,
     account: Address,
     lockId: bigint
   ): Promise<ForcedWithdrawalInfo> {
@@ -171,7 +175,7 @@ export class TheCompactService {
   }
 
   async enableForcedWithdrawal(
-    chainId: number,
+    chainId: SupportedChainId,
     lockId: bigint
   ): Promise<`0x${string}`> {
     logger.info(
@@ -205,7 +209,9 @@ export class TheCompactService {
     // Get base fee
     const baseFee = await publicClient
       .getBlock({ blockTag: "latest" })
-      .then((block) => block.baseFeePerGas || 0n);
+      .then(
+        (block: { baseFeePerGas: bigint | null }) => block.baseFeePerGas || 0n
+      );
 
     logger.info(`Got base fee for chain ${chainId}: ${baseFee}`);
 
@@ -219,7 +225,7 @@ export class TheCompactService {
       account,
       chain: null,
       maxFeePerGas: (baseFee * 120n) / 100n,
-      maxPriorityFeePerGas: 1n,
+      maxPriorityFeePerGas: CHAIN_PRIORITY_FEES[chainId],
     });
 
     logger.info(
@@ -230,7 +236,7 @@ export class TheCompactService {
   }
 
   async executeForcedWithdrawal(
-    chainId: number,
+    chainId: SupportedChainId,
     lockId: bigint,
     amount: bigint
   ): Promise<`0x${string}`> {
@@ -280,7 +286,9 @@ export class TheCompactService {
     // Get base fee
     const baseFee = await publicClient
       .getBlock({ blockTag: "latest" })
-      .then((block) => block.baseFeePerGas || 0n);
+      .then(
+        (block: { baseFeePerGas: bigint | null }) => block.baseFeePerGas || 0n
+      );
 
     logger.info(`Got base fee for chain ${chainId}: ${baseFee}`);
 
@@ -294,7 +302,7 @@ export class TheCompactService {
       account,
       chain: null,
       maxFeePerGas: (baseFee * 120n) / 100n,
-      maxPriorityFeePerGas: 1n,
+      maxPriorityFeePerGas: CHAIN_PRIORITY_FEES[chainId],
     });
 
     logger.info(
@@ -305,7 +313,7 @@ export class TheCompactService {
     return hash;
   }
 
-  public getPublicClient(chainId: number) {
+  public getPublicClient(chainId: SupportedChainId) {
     return this.publicClients[chainId];
   }
 }

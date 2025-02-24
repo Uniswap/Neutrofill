@@ -67,7 +67,7 @@ export const CHAIN_CONFIG: Record<SupportedChainId, ChainConfig> = {
         coingeckoId: "weth",
       },
       USDC: {
-        address: "0x7F5c764cBc14f9669B88837ca1490cCa17c31607",
+        address: "0x0b2C639c533813f4Aa9D7837CAf62653d097Ff85",
         decimals: 6,
         symbol: "USDC",
         coingeckoId: "usd-coin",
@@ -128,4 +128,11 @@ export const CHAIN_CONFIG: Record<SupportedChainId, ChainConfig> = {
       },
     },
   },
+} as const;
+
+export const CHAIN_PRIORITY_FEES: Record<SupportedChainId, bigint> = {
+  1: 1n, // Mainnet
+  10: 1n, // Optimism
+  130: 1n, // Unichain
+  8453: 50n, // Base
 } as const;
