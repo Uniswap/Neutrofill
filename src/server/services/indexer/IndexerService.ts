@@ -152,17 +152,37 @@ export class IndexerService {
     const lockKey = this.getLockKey(chainId, lockId);
     const existingStatus = this.processedLocks.get(lockKey);
 
-    // Skip if withdrawal already submitted or previously failed
+    // Skip if withdrawal already submitted and we're still waiting for confirmation
     if (
-      existingStatus?.withdrawalTxSubmitted ||
-      existingStatus?.withdrawalFailed
+      existingStatus?.withdrawalTxSubmitted &&
+      !existingStatus?.withdrawalConfirmed
     ) {
+      const timeSinceLastAttempt =
+        Date.now() - (existingStatus?.lastWithdrawalAttempt || 0);
+      // Only retry after MAX_CONFIRMATION_WAIT
+      if (timeSinceLastAttempt < IndexerService.MAX_CONFIRMATION_WAIT) {
+        logger.debug(
+          `Skipping withdrawal for lock ${lockId} on chain ${chainId} - waiting for confirmation of previous tx`,
+          { existingStatus }
+        );
+        return;
+      }
+    }
+
+    // Skip if withdrawal previously failed
+    if (existingStatus?.withdrawalFailed) {
       logger.debug(
-        `Skipping withdrawal for lock ${lockId} on chain ${chainId} - ${
-          existingStatus.withdrawalFailed
-            ? "previously failed"
-            : "already submitted"
-        }`
+        `Skipping withdrawal for lock ${lockId} on chain ${chainId} - previously failed`,
+        { existingStatus }
+      );
+      return;
+    }
+
+    // Skip if withdrawal was confirmed
+    if (existingStatus?.withdrawalConfirmed) {
+      logger.debug(
+        `Skipping withdrawal for lock ${lockId} on chain ${chainId} - already confirmed`,
+        { existingStatus }
       );
       return;
     }

@@ -84,7 +84,11 @@ async function verifySignature(
 export async function verifyBroadcastRequest(
   request: BroadcastRequest,
   theCompactService: TheCompactService
-): Promise<{ isValid: boolean; isOnchainRegistration: boolean }> {
+): Promise<{
+  isValid: boolean;
+  isOnchainRegistration: boolean;
+  error?: string;
+}> {
   const chainId = Number.parseInt(
     request.chainId.toString()
   ) as SupportedChainId;
@@ -116,6 +120,7 @@ export async function verifyBroadcastRequest(
   let isSponsorValid = false;
   let registrationStatus = null;
   let isOnchainRegistration = false;
+  let error: string | undefined;
 
   try {
     logger.info("Attempting to verify sponsor signature:", {
@@ -132,42 +137,49 @@ export async function verifyBroadcastRequest(
         request.compact.sponsor,
         chainPrefix
       );
-    }
 
-    logger.info("Sponsor signature verification result:", isSponsorValid);
-  } catch (error) {
-    logger.error("Sponsor signature verification failed:", error);
-  }
-
-  // If sponsor signature is invalid or missing, check registration status
-  if (!isSponsorValid) {
-    logger.info("Sponsor signature invalid, checking onchain registration...");
-    try {
-      registrationStatus = await theCompactService.getRegistrationStatus(
-        chainId,
-        request.compact.sponsor as `0x${string}`,
-        claimHash as `0x${string}`,
-        COMPACT_REGISTRATION_TYPEHASH as `0x${string}`
-      );
-
-      logger.info("Registration status check result:", {
-        isActive: registrationStatus.isActive,
-        expires: registrationStatus.expires?.toString(),
-        compactExpires: request.compact.expires,
-      });
-
-      if (registrationStatus.isActive) {
-        isSponsorValid = true;
-        isOnchainRegistration = true;
+      if (!isSponsorValid) {
+        error = "Invalid sponsor signature provided";
       }
-    } catch (error) {
-      logger.error("Registration status check failed:", {
-        error,
-        chainId,
-        sponsor: request.compact.sponsor,
-        claimHash,
-      });
+    } else {
+      // Check registration status if no valid signature provided
+      logger.info(
+        "No sponsor signature provided, checking onchain registration..."
+      );
+      try {
+        registrationStatus = await theCompactService.getRegistrationStatus(
+          chainId,
+          request.compact.sponsor as `0x${string}`,
+          claimHash as `0x${string}`,
+          COMPACT_REGISTRATION_TYPEHASH as `0x${string}`
+        );
+
+        logger.info("Registration status check result:", {
+          isActive: registrationStatus.isActive,
+          expires: registrationStatus.expires?.toString(),
+          compactExpires: request.compact.expires,
+        });
+
+        if (registrationStatus.isActive) {
+          isSponsorValid = true;
+          isOnchainRegistration = true;
+        } else {
+          error =
+            "No sponsor signature provided (0x) and no active onchain registration found";
+        }
+      } catch (err) {
+        logger.error("Registration status check failed:", {
+          error: err,
+          chainId,
+          sponsor: request.compact.sponsor,
+          claimHash,
+        });
+        error = "Failed to check onchain registration status";
+      }
     }
+  } catch (err) {
+    logger.error("Sponsor signature verification failed:", err);
+    error = "Sponsor signature verification failed";
   }
 
   if (!isSponsorValid) {
@@ -183,7 +195,7 @@ export async function verifyBroadcastRequest(
           : null,
       }
     );
-    return { isValid: false, isOnchainRegistration: false };
+    return { isValid: false, isOnchainRegistration, error };
   }
 
   // Verify allocator signature
@@ -195,7 +207,11 @@ export async function verifyBroadcastRequest(
   );
   if (!isAllocatorValid) {
     logger.error("Invalid allocator signature");
-    return { isValid: false, isOnchainRegistration };
+    return {
+      isValid: false,
+      isOnchainRegistration,
+      error: "Invalid allocator signature",
+    };
   }
 
   return { isValid: true, isOnchainRegistration };

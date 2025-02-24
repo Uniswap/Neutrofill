@@ -279,21 +279,19 @@ app.post("/broadcast", validateBroadcastRequestMiddleware, async (req, res) => {
       `Processing fill request for chainId ${chainId}, claimHash: ${claimHash}`
     );
 
-    // Verify signatures and check registration status
+    // Set the claim hash before verification
     request.claimHash = claimHash;
-    const { isValid, isOnchainRegistration } = await verifyBroadcastRequest(
-      request,
-      theCompactService
-    );
+
+    // Verify signatures
+    logger.info("Verifying signatures...");
+    const { isValid, isOnchainRegistration, error } =
+      await verifyBroadcastRequest(request, theCompactService);
+
     if (!isValid) {
-      wsManager.broadcastFillRequest(
-        JSON.stringify(request),
-        false,
-        "Invalid signature"
-      );
-      return res.status(401).json({
+      logger.error("Invalid signatures:", { error });
+      return res.status(400).json({
         error: "Invalid signatures",
-        message: "Failed to verify sponsor and/or allocator signatures",
+        details: error || "Unknown validation error",
       });
     }
 
