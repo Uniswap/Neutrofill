@@ -24,6 +24,7 @@ import { PriceService } from "./services/price/PriceService.js";
 import { TokenBalanceService } from "./services/balance/TokenBalanceService.js";
 import { AggregateBalanceService } from "./services/balance/AggregateBalanceService.js";
 import { IndexerService } from "./services/indexer/IndexerService.js";
+import { LockProcessorService } from "./services/indexer/LockProcessorService.js";
 import { WebSocketManager } from "./services/websocket/WebSocketManager.js";
 import type { BroadcastRequest } from "./types/broadcast.js";
 import { deriveClaimHash } from "./utils.js";
@@ -139,13 +140,13 @@ const walletClients: Record<
   }),
 };
 
-// Then initialize services
-const indexerService = new IndexerService(
-  process.env.COMPACT_INDEXER || "https://the-compact-indexer-2.ponder-dev.com",
-  account.address,
-  publicClients,
-  walletClients
-);
+// Initialize websocket manager
+const wsManager = new WebSocketManager(server);
+
+// Initialize TheCompactService
+const theCompactService = new TheCompactService(publicClients, walletClients);
+
+// Initialize token balance services
 const tokenBalanceService = new TokenBalanceService(
   account.address,
   publicClients
@@ -154,10 +155,6 @@ const aggregateBalanceService = new AggregateBalanceService(
   tokenBalanceService,
   priceService
 );
-const wsManager = new WebSocketManager(server);
-
-// Initialize TheCompactService
-const theCompactService = new TheCompactService(publicClients, walletClients);
 
 // Supported addresses for arbiters and tribunals per chain
 const SUPPORTED_ARBITER_ADDRESSES: Record<SupportedChainId, string> = {
@@ -168,6 +165,20 @@ const SUPPORTED_ARBITER_ADDRESSES: Record<SupportedChainId, string> = {
 } as const;
 
 const SUPPORTED_TRIBUNAL_ADDRESSES = SUPPORTED_ARBITER_ADDRESSES;
+
+// Initialize indexer and processor services
+const indexerService = new IndexerService(
+  process.env.INDEXER_URL || "http://localhost:4000",
+  account.address,
+  publicClients,
+  walletClients
+);
+
+const lockProcessorService = new LockProcessorService(
+  account.address,
+  publicClients,
+  walletClients
+);
 
 // Set up event listeners for balance updates
 tokenBalanceService.on(
@@ -195,25 +206,7 @@ priceService.start();
 tokenBalanceService.start();
 aggregateBalanceService.start();
 indexerService.start();
-
-// Check and set token approvals for supported chains
-const chainsToApprove = [10, 130, 8453] as const; // Optimism, Unichain, Base
-for (const chainId of chainsToApprove) {
-  await checkAndSetTokenApprovals(
-    chainId,
-    SUPPORTED_TRIBUNAL_ADDRESSES[chainId] as `0x${string}`,
-    publicClients[chainId],
-    walletClients[chainId]
-  );
-}
-
-// Set up service event handlers
-priceService.on("price_update", (chainId: number, price: number) => {
-  wsManager.broadcastEthPrice(chainId, price.toString());
-});
-
-// Broadcast initial account info
-wsManager.broadcastAccountUpdate(account.address);
+lockProcessorService.start();
 
 // Ensure services are stopped when the process exits
 process.on("SIGTERM", () => {
@@ -221,6 +214,7 @@ process.on("SIGTERM", () => {
   tokenBalanceService.stop();
   aggregateBalanceService.stop();
   indexerService.stop();
+  lockProcessorService.stop();
   process.exit(0);
 });
 
@@ -229,6 +223,7 @@ process.on("SIGINT", () => {
   tokenBalanceService.stop();
   aggregateBalanceService.stop();
   indexerService.stop();
+  lockProcessorService.stop();
   process.exit(0);
 });
 
@@ -439,7 +434,10 @@ app.post("/broadcast", validateBroadcastRequestMiddleware, async (req, res) => {
 app.get("/health", (_req, res) => {
   res.json({
     status: "ok",
-    timestamp: Math.floor(Date.now() / 1000),
+    services: {
+      indexer: !!indexerService.getStateStore(),
+      processor: !!lockProcessorService.getStateStore(),
+    },
   });
 });
 
