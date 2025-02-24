@@ -24,8 +24,9 @@ import { PriceService } from "./services/price/PriceService.js";
 import { TokenBalanceService } from "./services/balance/TokenBalanceService.js";
 import { AggregateBalanceService } from "./services/balance/AggregateBalanceService.js";
 import { IndexerService } from "./services/indexer/IndexerService.js";
-import { LockProcessorService } from "./services/indexer/LockProcessorService.js";
 import { LockStateStore } from "./services/indexer/LockStateStore.js"; // Import LockStateStore
+import { ForcedWithdrawalEnablerService } from "./services/indexer/ForcedWithdrawalEnablerService.js";
+import { WithdrawalExecutorService } from "./services/indexer/WithdrawalExecutorService.js";
 import { WebSocketManager } from "./services/websocket/WebSocketManager.js";
 import type { BroadcastRequest } from "./types/broadcast.js";
 import { deriveClaimHash } from "./utils.js";
@@ -169,7 +170,14 @@ const indexerService = new IndexerService(
   lockStateStore
 );
 
-const lockProcessorService = new LockProcessorService(
+const forcedWithdrawalEnablerService = new ForcedWithdrawalEnablerService(
+  account.address,
+  publicClients,
+  walletClients,
+  lockStateStore
+);
+
+const withdrawalExecutorService = new WithdrawalExecutorService(
   account.address,
   publicClients,
   walletClients,
@@ -212,7 +220,8 @@ priceService.start();
 tokenBalanceService.start();
 aggregateBalanceService.start();
 indexerService.start();
-lockProcessorService.start();
+forcedWithdrawalEnablerService.start();
+withdrawalExecutorService.start();
 
 // Ensure services are stopped when the process exits
 process.on("SIGTERM", () => {
@@ -220,7 +229,8 @@ process.on("SIGTERM", () => {
   tokenBalanceService.stop();
   aggregateBalanceService.stop();
   indexerService.stop();
-  lockProcessorService.stop();
+  forcedWithdrawalEnablerService.stop();
+  withdrawalExecutorService.stop();
   process.exit(0);
 });
 
@@ -229,7 +239,8 @@ process.on("SIGINT", () => {
   tokenBalanceService.stop();
   aggregateBalanceService.stop();
   indexerService.stop();
-  lockProcessorService.stop();
+  forcedWithdrawalEnablerService.stop();
+  withdrawalExecutorService.stop();
   process.exit(0);
 });
 
@@ -442,7 +453,7 @@ app.get("/health", (_req, res) => {
     status: "ok",
     services: {
       indexer: !!indexerService.getStateStore(),
-      processor: !!lockProcessorService.getStateStore(),
+      processor: true, // Both services are initialized at startup
     },
   });
 });

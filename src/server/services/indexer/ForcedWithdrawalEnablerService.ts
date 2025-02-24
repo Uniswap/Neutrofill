@@ -1,42 +1,17 @@
-import type {
-  Address,
-  PublicClient,
-  WalletClient,
-  WriteContractParameters,
-} from "viem";
+import type { Address, PublicClient, WalletClient } from "viem";
 import type { SupportedChainId } from "../../config/constants.js";
 import { Logger } from "../../utils/logger.js";
 import { TheCompactService } from "../TheCompactService.js";
 import type { LockState, LockStateStore } from "./LockStateStore.js";
 
-const logger = new Logger("LockProcessorService");
-
-const lockAbi = [
-  {
-    inputs: [],
-    name: "enableWithdrawals",
-    outputs: [],
-    stateMutability: "nonpayable",
-    type: "function",
-  },
-  {
-    inputs: [{ type: "uint256", name: "amount" }],
-    name: "withdraw",
-    outputs: [],
-    stateMutability: "nonpayable",
-    type: "function",
-  },
-] as const;
-
-const MIN_USD_VALUE = 1;
+const logger = new Logger("ForcedWithdrawalEnablerService");
 
 /**
- * Service that processes resource locks by enabling withdrawals and executing withdrawals
+ * Service that monitors locks and enables forced withdrawals where needed
  */
-export class LockProcessorService {
+export class ForcedWithdrawalEnablerService {
   private readonly compactService: TheCompactService;
   private readonly stateStore: LockStateStore;
-  private readonly walletClients: Map<SupportedChainId, WalletClient>;
   private readonly account: Address;
   private intervalId?: NodeJS.Timeout;
   private static readonly MAX_CONFIRMATION_WAIT = 10 * 60 * 1000; // 10 minutes
@@ -52,12 +27,6 @@ export class LockProcessorService {
     this.account = account;
     this.compactService = new TheCompactService(publicClients, walletClients);
     this.stateStore = stateStore;
-    this.walletClients = new Map(
-      Object.entries(walletClients).map(([chainId, client]) => [
-        Number(chainId) as SupportedChainId,
-        client,
-      ])
-    );
   }
 
   private getLockKey(chainId: number | string, lockId: string): string {
@@ -70,7 +39,7 @@ export class LockProcessorService {
     const now = Date.now();
 
     if (!lastAttempt) return true;
-    return now - lastAttempt >= LockProcessorService.ENABLE_COOLDOWN;
+    return now - lastAttempt >= ForcedWithdrawalEnablerService.ENABLE_COOLDOWN;
   }
 
   private markEnableAttempt(chainId: number | string, lockId: string): void {
@@ -97,7 +66,7 @@ export class LockProcessorService {
       logger.info(`Waiting for transaction ${txHash} confirmation...`);
       const receipt = await publicClient.waitForTransactionReceipt({
         hash: txHash as `0x${string}`,
-        timeout: LockProcessorService.MAX_CONFIRMATION_WAIT,
+        timeout: ForcedWithdrawalEnablerService.MAX_CONFIRMATION_WAIT,
       });
 
       const confirmed = receipt.status === "success";
@@ -119,62 +88,30 @@ export class LockProcessorService {
 
   private async monitorTransaction(
     state: LockState,
-    isEnableTx: boolean,
     txHash: string,
     timedOut = false
   ): Promise<void> {
     const confirmed = await this.isTransactionConfirmed(state.chainId, txHash);
 
-    if (isEnableTx) {
-      if (!confirmed) {
-        this.stateStore.updateState(Number(state.chainId), state.lockId, {
-          ...state,
-          tokenAddress: state.tokenAddress,
-          status: "Disabled",
-          enableTxSubmitted: false,
-          enableTxHash: undefined,
-          lastUpdated: Date.now(),
-        });
-      } else {
-        this.stateStore.updateState(Number(state.chainId), state.lockId, {
-          ...state,
-          tokenAddress: state.tokenAddress,
-          status: "Enabled",
-          enableTxSubmitted: true,
-          enableTxConfirmed: true,
-          enableTxHash: txHash,
-          lastUpdated: Date.now(),
-        });
-      }
+    if (!confirmed) {
+      this.stateStore.updateState(Number(state.chainId), state.lockId, {
+        ...state,
+        tokenAddress: state.tokenAddress,
+        status: "Disabled",
+        enableTxSubmitted: false,
+        enableTxHash: undefined,
+        lastUpdated: Date.now(),
+      });
     } else {
-      // This is a withdrawal transaction
-      if (!confirmed) {
-        this.stateStore.updateState(Number(state.chainId), state.lockId, {
-          ...state,
-          tokenAddress: state.tokenAddress,
-          withdrawalFailed: true,
-          withdrawalFailedReason: timedOut ? "TIMEOUT" : "REVERTED",
-          withdrawalTxHash: undefined,
-          lastUpdated: Date.now(),
-        });
-      } else {
-        // Successfully withdrawn - clear balance and update state
-        this.stateStore.updateState(Number(state.chainId), state.lockId, {
-          ...state,
-          tokenAddress: state.tokenAddress,
-          balance: "0", // Clear the balance after successful withdrawal
-          usdValue: 0, // Reset USD value
-          status: "Withdrawn",
-          withdrawalConfirmed: true,
-          withdrawalConfirmedAt: Date.now(),
-          withdrawalTxHash: txHash,
-          lastUpdated: Date.now(),
-        });
-
-        // Remove from enable attempts tracking since it's been withdrawn
-        const key = this.getLockKey(state.chainId, state.lockId);
-        this.enableAttempts.delete(key);
-      }
+      this.stateStore.updateState(Number(state.chainId), state.lockId, {
+        ...state,
+        tokenAddress: state.tokenAddress,
+        status: "Enabled",
+        enableTxSubmitted: true,
+        enableTxConfirmed: true,
+        enableTxHash: txHash,
+        lastUpdated: Date.now(),
+      });
     }
   }
 
@@ -183,41 +120,25 @@ export class LockProcessorService {
       // Skip if already withdrawn
       if (state.status === "Withdrawn") {
         logger.debug(
-          `[LockProcessorService] Skipping processing for withdrawn lock ${state.lockId} on chain ${state.chainId}`
+          `[ForcedWithdrawalEnablerService] Skipping processing for withdrawn lock ${state.lockId} on chain ${state.chainId}`
         );
         return;
       }
 
-      logger.debug(
-        `[LockProcessorService] Processing lock ${state.lockId} on chain ${state.chainId}`,
-        {
-          state,
-        }
-      );
-
-      const chainIdNum = Number(state.chainId) as SupportedChainId;
-
-      // Skip if value too low
-      if (!state.usdValue || state.usdValue < MIN_USD_VALUE) {
-        logger.debug(
-          `[LockProcessorService] Skipping withdrawal for lock ${state.lockId} on chain ${state.chainId} - value too low`,
-          { usdValue: state.usdValue, minimum: MIN_USD_VALUE }
-        );
-        return;
-      }
-
-      // First check our local state
+      // Skip if already enabled
       if (state.status === "Enabled" && state.enableTxConfirmed) {
         logger.debug(
-          `[LockProcessorService] Lock ${state.lockId} on chain ${state.chainId} already enabled in local state`
+          `[ForcedWithdrawalEnablerService] Lock ${state.lockId} on chain ${state.chainId} already enabled in local state`
         );
         return;
       }
+
+      const chainIdNum = Number(state.chainId) as SupportedChainId;
 
       // Check cooldown period before any further processing
       if (!this.canAttemptEnable(state.chainId, state.lockId)) {
         logger.info(
-          `[LockProcessorService] Skipping enable attempt for lock ${state.lockId} on chain ${state.chainId} - in cooldown period`
+          `[ForcedWithdrawalEnablerService] Skipping enable attempt for lock ${state.lockId} on chain ${state.chainId} - in cooldown period`
         );
         return;
       }
@@ -233,7 +154,7 @@ export class LockProcessorService {
       // If already enabled on-chain but not in our state, update our state
       if (onChainStatus === "Enabled") {
         logger.info(
-          `[LockProcessorService] Found lock ${state.lockId} already enabled on-chain, updating local state`
+          `[ForcedWithdrawalEnablerService] Found lock ${state.lockId} already enabled on-chain, updating local state`
         );
         this.stateStore.updateState(Number(state.chainId), state.lockId, {
           ...state,
@@ -248,13 +169,13 @@ export class LockProcessorService {
       // Only proceed with enablement if status is Disabled
       if (onChainStatus !== "Disabled") {
         logger.warn(
-          `[LockProcessorService] Unexpected forced withdrawal status for lock ${state.lockId} on chain ${state.chainId}: ${onChainStatus}`
+          `[ForcedWithdrawalEnablerService] Unexpected forced withdrawal status for lock ${state.lockId} on chain ${state.chainId}: ${onChainStatus}`
         );
         return;
       }
 
       logger.info(
-        `[LockProcessorService] Attempting to enable forced withdrawal for lock ${state.lockId} on chain ${state.chainId}`
+        `[ForcedWithdrawalEnablerService] Attempting to enable forced withdrawal for lock ${state.lockId} on chain ${state.chainId}`
       );
 
       // Mark the enable attempt before making the call
@@ -266,7 +187,7 @@ export class LockProcessorService {
       );
 
       logger.info(
-        `[LockProcessorService] Submitted enable transaction ${hash} for chain ${chainIdNum} lock ${state.lockId}`
+        `[ForcedWithdrawalEnablerService] Submitted enable transaction ${hash} for chain ${chainIdNum} lock ${state.lockId}`
       );
 
       // Update state with transaction hash
@@ -280,17 +201,16 @@ export class LockProcessorService {
       });
 
       // Monitor enable transaction
-      await this.monitorTransaction(state, true, hash);
+      await this.monitorTransaction(state, hash);
     } catch (error) {
       logger.error(
-        `[LockProcessorService] Error processing lock ${state.lockId} on chain ${state.chainId}:`,
+        `[ForcedWithdrawalEnablerService] Error processing lock ${state.lockId} on chain ${state.chainId}:`,
         error
       );
       // Update state to mark as failed
       this.stateStore.updateState(Number(state.chainId), state.lockId, {
         ...state,
         status: "Failed",
-        withdrawalFailed: true,
         lastUpdated: Date.now(),
       });
     } finally {
@@ -307,17 +227,16 @@ export class LockProcessorService {
       // Get all processable locks
       const locks = this.stateStore.getProcessableLocks();
       logger.debug(
-        `[LockProcessorService] Found ${locks.length} processable locks`
+        `[ForcedWithdrawalEnablerService] Found ${locks.length} processable locks`
       );
 
       // Process each lock sequentially
       for (const lock of locks) {
         logger.debug(
-          `[LockProcessorService] Attempting to process lock ${lock.lockId} on chain ${lock.chainId}`,
+          `[ForcedWithdrawalEnablerService] Attempting to process lock ${lock.lockId} on chain ${lock.chainId}`,
           {
             status: lock.status,
             balance: lock.balance,
-            usdValue: lock.usdValue,
           }
         );
 
@@ -325,53 +244,26 @@ export class LockProcessorService {
           this.stateStore.tryAcquireProcessingLock(lock.chainId, lock.lockId)
         ) {
           logger.debug(
-            `[LockProcessorService] Acquired processing lock for ${lock.lockId} on chain ${lock.chainId}`
+            `[ForcedWithdrawalEnablerService] Acquired processing lock for ${lock.lockId} on chain ${lock.chainId}`
           );
           await this.processLock(lock);
         } else {
           logger.debug(
-            `[LockProcessorService] Failed to acquire processing lock for ${lock.lockId} on chain ${lock.chainId}`
+            `[ForcedWithdrawalEnablerService] Failed to acquire processing lock for ${lock.lockId} on chain ${lock.chainId}`
           );
         }
       }
     } catch (error) {
       logger.error(
-        "[LockProcessorService] Error in processAvailableLocks:",
+        "[ForcedWithdrawalEnablerService] Error in processAvailableLocks:",
         error
       );
-    }
-  }
-
-  private async isWithdrawalEnabled(
-    chainId: number,
-    lockId: string
-  ): Promise<boolean> {
-    try {
-      // First check if we have a confirmed enablement in our state
-      const state = this.stateStore.getLockState(chainId.toString(), lockId);
-      if (state?.status === "Enabled" && state.enableTxConfirmed) {
-        return true;
-      }
-
-      // Then check on-chain status for this specific lock
-      const { status } = await this.compactService.getForcedWithdrawalStatus(
-        chainId as SupportedChainId,
-        this.account,
-        BigInt(lockId)
-      );
-      return status === "Enabled";
-    } catch (error) {
-      logger.error(
-        `[LockProcessorService] Error checking withdrawal status for chain ${chainId} lock ${lockId}:`,
-        error
-      );
-      return false;
     }
   }
 
   public start(): void {
     if (this.intervalId) {
-      logger.warn("LockProcessorService already running");
+      logger.warn("ForcedWithdrawalEnablerService already running");
       return;
     }
 
@@ -383,18 +275,14 @@ export class LockProcessorService {
       void this.processAvailableLocks();
     }, 5000);
 
-    logger.info("LockProcessorService started");
+    logger.info("ForcedWithdrawalEnablerService started");
   }
 
   public stop(): void {
     if (this.intervalId) {
       clearInterval(this.intervalId);
       this.intervalId = undefined;
-      logger.info("LockProcessorService stopped");
+      logger.info("ForcedWithdrawalEnablerService stopped");
     }
-  }
-
-  public getStateStore(): LockStateStore {
-    return this.stateStore;
   }
 }
