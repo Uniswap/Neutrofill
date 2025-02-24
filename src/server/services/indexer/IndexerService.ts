@@ -21,7 +21,7 @@ const WETH_ADDRESSES: Record<SupportedChainId, string> = {
 const USDC_ADDRESSES: Record<SupportedChainId, string> = {
   1: "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48",
   10: "0x0b2C639c533813f4Aa9D7837CAf62653d097Ff85",
-  130: "0x0000000000000000000000000000000000000000", // No USDC on Unichain
+  130: "0x078d782b760474a361dda0af3839290b0ef57ad6", // USDC on Unichain
   8453: "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
 } as const;
 
@@ -277,6 +277,102 @@ export class IndexerService {
     }
   }
 
+  private async monitorEnableTransaction(
+    chainId: number,
+    lockId: string,
+    txHash: `0x${string}`
+  ): Promise<void> {
+    const lockKey = this.getLockKey(chainId.toString(), lockId);
+    const publicClient = this.compactService.getPublicClient(
+      chainId as SupportedChainId
+    );
+    if (!publicClient) {
+      logger.error(
+        `No public client found for chain ${chainId} while monitoring enable tx ${txHash}`
+      );
+      return;
+    }
+
+    const startTime = Date.now();
+    let confirmed = false;
+    let timedOut = false;
+
+    try {
+      // Create a timeout promise
+      const timeoutPromise = new Promise((_, reject) => {
+        setTimeout(() => {
+          reject(new Error("Transaction confirmation timeout"));
+        }, IndexerService.MAX_CONFIRMATION_WAIT);
+      });
+
+      // Wait for transaction receipt with timeout
+      logger.info(`Waiting for enable transaction ${txHash} confirmation...`);
+      const receipt = (await Promise.race([
+        publicClient.waitForTransactionReceipt({
+          hash: txHash,
+        }),
+        timeoutPromise,
+      ])) as TransactionReceipt;
+
+      confirmed = receipt.status === "success";
+      const duration = Date.now() - startTime;
+      logger.info(
+        `Enable transaction ${txHash} ${confirmed ? "confirmed" : "reverted"} after ${duration}ms`,
+        {
+          blockNumber: receipt.blockNumber.toString(),
+          gasUsed: receipt.gasUsed.toString(),
+          status: receipt.status,
+          duration,
+        }
+      );
+    } catch (error) {
+      const duration = Date.now() - startTime;
+      timedOut = duration >= IndexerService.MAX_CONFIRMATION_WAIT;
+
+      logger.error(
+        `Error monitoring enable transaction ${txHash} after ${duration}ms: ${
+          timedOut ? "TIMED OUT" : error
+        }`
+      );
+      confirmed = false;
+    }
+
+    // Update lock status based on confirmation
+    const existingStatus = this.processedLocks.get(lockKey);
+    if (!existingStatus) {
+      logger.warn(
+        `Lock ${lockId} status not found while updating enable confirmation status`
+      );
+      return;
+    }
+
+    if (!confirmed) {
+      // Reset the enable tx submitted flag so we can try again
+      this.processedLocks.set(lockKey, {
+        ...existingStatus,
+        status: "Disabled",
+        enableTxSubmitted: false,
+      });
+
+      logger.warn(
+        `Enable transaction ${txHash} ${
+          timedOut ? "timed out" : "failed"
+        } for lock ${lockId} on chain ${chainId} - will retry later`
+      );
+    } else {
+      // Mark as successfully enabled
+      this.processedLocks.set(lockKey, {
+        ...existingStatus,
+        status: "Enabled",
+        enableTxSubmitted: true,
+      });
+
+      logger.info(
+        `Enable transaction ${txHash} confirmed for lock ${lockId} on chain ${chainId}`
+      );
+    }
+  }
+
   private async checkAndEnableForcedWithdrawal(
     chainId: string,
     lockId: string
@@ -289,17 +385,19 @@ export class IndexerService {
       { existingStatus }
     );
 
-    // Skip if we've already submitted a transaction or if it's already enabled
-    if (
-      existingStatus?.enableTxSubmitted ||
-      existingStatus?.status === "Enabled"
-    ) {
+    // Skip if we've already submitted a transaction and it's still pending
+    if (existingStatus?.enableTxSubmitted) {
       logger.debug(
-        `Skipping enableForcedWithdrawal for lock ${lockId} on chain ${chainId} - ${
-          existingStatus.enableTxSubmitted
-            ? "already submitted"
-            : "already enabled"
-        }`,
+        `Skipping enableForcedWithdrawal for lock ${lockId} on chain ${chainId} - transaction already submitted`,
+        { existingStatus }
+      );
+      return;
+    }
+
+    // Skip if it's already enabled
+    if (existingStatus?.status === "Enabled") {
+      logger.debug(
+        `Skipping enableForcedWithdrawal for lock ${lockId} on chain ${chainId} - already enabled`,
         { existingStatus }
       );
       return;
@@ -310,9 +408,10 @@ export class IndexerService {
       logger.debug(
         `Fetching current status for lock ${lockId} on chain ${chainId}`
       );
+      const chainIdNum = Number(chainId) as SupportedChainId;
       const { status, availableAt } =
         await this.compactService.getForcedWithdrawalStatus(
-          Number(chainId) as SupportedChainId,
+          chainIdNum,
           this.account,
           BigInt(lockId)
         );
@@ -335,7 +434,7 @@ export class IndexerService {
         );
 
         const hash = await this.compactService.enableForcedWithdrawal(
-          Number(chainId) as SupportedChainId,
+          chainIdNum,
           BigInt(lockId)
         );
 
@@ -349,6 +448,9 @@ export class IndexerService {
         logger.info(
           `Successfully submitted enableForcedWithdrawal transaction for lock ${lockId} on chain ${chainId}: ${hash}`
         );
+
+        // Start monitoring the enable transaction
+        await this.monitorEnableTransaction(chainIdNum, lockId, hash);
       } else {
         logger.debug(
           `Forced withdrawal already ${status.toLowerCase()} for lock ${lockId} on chain ${chainId}`,
@@ -362,6 +464,13 @@ export class IndexerService {
         `Error checking/enabling forced withdrawal for lock ${lockId} on chain ${chainId}:`,
         error
       );
+
+      // Clear the submitted flag so we can retry
+      this.processedLocks.set(lockKey, {
+        ...existingStatus,
+        status: "Disabled",
+        enableTxSubmitted: false,
+      });
     }
   }
 
@@ -415,6 +524,7 @@ export class IndexerService {
       const items = data.data.account.resourceLocks?.items || [];
 
       if (items.length > 0) {
+        // Process items sequentially to avoid parallel transactions
         for (const item of items) {
           logger.debug(`Resource lock found on chain ${item.chainId}:`, {
             chainId: item.chainId,
@@ -423,19 +533,38 @@ export class IndexerService {
             lockId: item.resourceLock.lockId,
           });
 
-          // Check and potentially enable forced withdrawal
-          await this.checkAndEnableForcedWithdrawal(
-            item.chainId,
-            item.resourceLock.lockId
-          );
+          try {
+            // Check and potentially enable forced withdrawal - wait for it to complete
+            await this.checkAndEnableForcedWithdrawal(
+              item.chainId,
+              item.resourceLock.lockId
+            );
 
-          // Check and potentially execute withdrawal
-          await this.checkAndProcessWithdrawal(
-            item.chainId,
-            item.resourceLock.lockId,
-            item.tokenAddress,
-            item.balance
-          );
+            // Only proceed with withdrawal if enable was successful
+            const lockKey = this.getLockKey(
+              item.chainId,
+              item.resourceLock.lockId
+            );
+            const lockStatus = this.processedLocks.get(lockKey);
+
+            if (
+              lockStatus?.status === "Enabled" ||
+              lockStatus?.status === "Pending"
+            ) {
+              // Check and potentially execute withdrawal - wait for it to complete
+              await this.checkAndProcessWithdrawal(
+                item.chainId,
+                item.resourceLock.lockId,
+                item.tokenAddress,
+                item.balance
+              );
+            }
+          } catch (error) {
+            logger.error(
+              `Error processing lock ${item.resourceLock.lockId} on chain ${item.chainId}:`,
+              error
+            );
+          }
         }
       }
     } catch (error) {
