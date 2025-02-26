@@ -10,6 +10,7 @@ Neutrofill is an automated filler bot that processes inbound transaction request
 - Support for multiple chains (Ethereum, Optimism, Base)
 - Configurable gas price multiplier for profitability calculations
 - WebSocket support for real-time transaction status updates
+- Automated cross-chain token rebalancing via Across Protocol
 
 ## Getting Started
 
@@ -85,6 +86,63 @@ Or start the production server with debug logs enabled:
 ```bash
 npm run start:debug
 ```
+
+## Cross-Chain Token Rebalancing
+
+Neutrofill includes an automated cross-chain token rebalancing mechanism that helps maintain target token percentages across multiple blockchain networks. This feature ensures that your service has sufficient funds on each supported chain to operate efficiently.
+
+### Rebalancing Features
+
+- Configurable target percentages for each chain
+- Token-specific rebalancing priorities
+- Automatic detection of chains that need funds
+- Cooldown periods between rebalancing operations
+- Minimum and maximum rebalance amounts
+- Transaction tracking and status monitoring
+- Event-based notifications for rebalance operations
+
+### How It Works
+
+1. The system monitors token balances across all supported chains
+2. When a chain's balance falls below its configured threshold, a rebalance operation is triggered
+3. The system identifies a source chain with excess funds
+4. Funds are transferred from the source chain to the destination chain using the Across Protocol
+5. The operation is tracked until completion
+
+### Configuration
+
+Rebalancing is configured in `src/server/config/rebalance.ts`. You can customize:
+
+- Target percentage for each chain
+- Trigger thresholds for rebalancing
+- Token priorities for rebalancing
+- Global settings like minimum/maximum amounts and cooldown periods
+
+Example configuration:
+
+```typescript
+{
+  chains: {
+    1: {  // Ethereum Mainnet
+      targetPercentage: 40,
+      triggerThreshold: 10,
+      tokens: {
+        ETH: { enabled: true, priority: 2 },
+        USDC: { enabled: true, priority: 3 }
+      }
+    },
+    // Other chains...
+  },
+  global: {
+    enabled: true,
+    minRebalanceUsdValue: 100,
+    maxRebalanceUsdValue: 5000,
+    cooldownPeriodMs: 3600000  // 1 hour
+  }
+}
+```
+
+See the example in `src/server/examples/rebalancer-example.ts` for a complete implementation.
 
 ## Configuration
 

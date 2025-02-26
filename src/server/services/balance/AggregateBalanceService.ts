@@ -3,57 +3,16 @@ import type { SupportedChainId } from "../../config/constants.js";
 import { Logger } from "../../utils/logger.js";
 import type { TokenBalanceService } from "./TokenBalanceService.js";
 import type { PriceService } from "../price/PriceService.js";
+import type { AggregateBalance, ChainBalance } from "../../types/balance.js";
 
-interface AggregateBalances {
+interface InternalAggregateBalances extends AggregateBalance {
   // Per-chain balances
-  chainBalances: Record<
-    SupportedChainId,
-    {
-      // Raw token amounts
-      tokens: {
-        ETH: string;
-        WETH: string;
-        USDC: string;
-      };
-      // USD values
-      usd: {
-        ETH: number;
-        WETH: number;
-        USDC: number;
-        total: number;
-      };
-      percentageOfTotal: number;
-    }
-  >;
-  // Per-token balances across all chains
-  tokenBalances: {
-    // Raw token amounts
-    tokens: {
-      ETH: string;
-      WETH: string;
-      USDC: string;
-    };
-    // USD values
-    usd: {
-      ETH: number;
-      WETH: number;
-      USDC: number;
-    };
-    // Percentage of total value
-    percentages: {
-      ETH: number;
-      WETH: number;
-      USDC: number;
-    };
-  };
-  // Total balance across all chains and tokens in USD
-  totalBalance: number;
-  lastUpdated: number;
+  chainBalances: Record<SupportedChainId, ChainBalance>;
 }
 
 export class AggregateBalanceService extends EventEmitter {
   private logger: Logger;
-  private aggregateBalances: AggregateBalances | null = null;
+  private aggregateBalances: InternalAggregateBalances | null = null;
   private updateInterval: NodeJS.Timeout | null = null;
   private readonly UPDATE_INTERVAL = 2500; // 2.5 seconds
 
@@ -99,13 +58,13 @@ export class AggregateBalanceService extends EventEmitter {
     }
   }
 
-  public getAggregateBalances(): AggregateBalances | null {
+  public getAggregateBalances(): AggregateBalance | null {
     return this.aggregateBalances;
   }
 
   private async calculateAggregateBalances(): Promise<void> {
     try {
-      const newAggregateBalances: AggregateBalances = {
+      const newAggregateBalances: InternalAggregateBalances = {
         chainBalances: {} as Record<
           SupportedChainId,
           (typeof newAggregateBalances.chainBalances)[SupportedChainId]
