@@ -154,6 +154,8 @@ export async function verifyBroadcastRequest(
           COMPACT_REGISTRATION_TYPEHASH as `0x${string}`
         );
 
+        logger.info(`${registrationStatus}`);
+
         logger.info("Registration status check result:", {
           isActive: registrationStatus.isActive,
           expires: registrationStatus.expires?.toString(),

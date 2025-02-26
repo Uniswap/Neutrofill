@@ -134,14 +134,50 @@ export class TheCompactService {
       throw new Error(`No client found for chain ${chainId}`);
     }
 
-    const result = await client.readContract({
-      address: THE_COMPACT_ADDRESS,
-      abi: THE_COMPACT_ABI,
-      functionName: "getRegistrationStatus",
-      args: [sponsor, claimHash, typehash],
-    });
+    try {
+      logger.info(
+        `Fetching registration status for sponsor ${sponsor}, claimHash ${claimHash}, and typehash ${typehash} on chain ${chainId}`
+      );
 
-    return result as RegistrationStatus;
+      // Use explicit type assertion for the contract call result
+      const result = await client.readContract({
+        address: THE_COMPACT_ADDRESS,
+        abi: THE_COMPACT_ABI,
+        functionName: "getRegistrationStatus",
+        args: [sponsor, claimHash, typehash],
+      });
+
+      // Access array elements directly with type assertion
+      const resultArray = result as readonly [boolean, bigint];
+      const isActive = resultArray[0];
+      const expires = resultArray[1];
+
+      logger.info(`Result: ${isActive}, ${expires}`);
+
+      return { isActive, expires } as RegistrationStatus;
+    } catch (error) {
+      const errorInfo = {
+        message: error instanceof Error ? error.message : String(error),
+        stack: error instanceof Error ? error.stack : undefined,
+        name: error instanceof Error ? error.name : undefined,
+        // For viem errors, they often have a cause property
+        cause: (error as { cause?: unknown })?.cause,
+        // Some errors might have a data property with more details
+        data: (error as { data?: unknown })?.data,
+        // Convert the whole error to string to capture anything else
+        toString: String(error),
+      };
+
+      logger.error("Error in getRegistrationStatus:", {
+        errorInfo,
+        errorMessage: errorInfo.message,
+        chainId,
+        sponsor,
+        claimHash,
+        typehash,
+      });
+      throw error;
+    }
   }
 
   async getForcedWithdrawalStatus(

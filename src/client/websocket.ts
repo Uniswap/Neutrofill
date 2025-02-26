@@ -220,9 +220,9 @@ export class WebSocketClient {
   private handleMessage(data: WebSocketMessage): void {
     switch (data.type) {
       case "connected":
-        console.log("Connected to the server");
-        console.log(`Client count: ${data.data.clientCount}`);
-        console.log(`Timestamp: ${data.timestamp}`);
+        console.debug("Connected to the server");
+        console.debug(`Client count: ${data.data.clientCount}`);
+        console.debug(`Timestamp: ${data.timestamp}`);
         break;
       case "account_update":
         this.onAccountUpdate?.(data.account);
