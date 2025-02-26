@@ -12,6 +12,9 @@ const ERC20_ABI = parseAbi([
 ]);
 
 const MAX_UINT128 = BigInt("0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF");
+const MAX_UINT256 = BigInt(
+  "0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF"
+);
 const MIN_ETH_BALANCE = 100_000_000_000_000n; // 0.0001 ETH in wei
 
 export async function checkAndSetTokenApprovals(
@@ -62,7 +65,7 @@ export async function checkAndSetTokenApprovals(
         const data = encodeFunctionData({
           abi: ERC20_ABI,
           functionName: "approve",
-          args: [tribunalAddress, MAX_UINT128],
+          args: [tribunalAddress, MAX_UINT256],
         });
 
         // Get base fee

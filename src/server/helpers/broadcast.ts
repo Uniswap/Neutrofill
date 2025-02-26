@@ -1,15 +1,7 @@
 import type { BroadcastRequest } from "../validation/broadcast.js";
 import type { PriceService } from "../services/price/PriceService.js";
 import type { TokenBalanceService } from "../services/balance/TokenBalanceService.js";
-import { derivePriorityFee } from "../utils.js";
-import {
-  encodeFunctionData,
-  parseEther,
-  formatEther,
-  type Hash,
-  createPublicClient,
-  http,
-} from "viem";
+import { encodeFunctionData, parseEther, formatEther, type Hash } from "viem";
 import { Logger } from "../utils/logger.js";
 import type { PublicClient, WalletClient, Chain, Transport } from "viem";
 import {
