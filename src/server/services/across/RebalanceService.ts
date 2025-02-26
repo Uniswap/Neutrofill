@@ -62,10 +62,15 @@ export class RebalanceService {
         );
       }
 
-      // Convert amount to raw amount (e.g., 1 USDC = 1e6)
+      // Convert amount to raw amount with proper decimal handling
+      // Use Math.round instead of Math.floor to handle potential floating point precision issues
       const rawAmount = BigInt(
-        Math.floor(amount * 10 ** tokenConfig.decimals)
+        Math.round(amount * 10 ** tokenConfig.decimals)
       ).toString();
+
+      this.logger.debug(
+        `Converting ${amount} ${tokenSymbol} to raw amount ${rawAmount} (${tokenConfig.decimals} decimals)`
+      );
 
       // Get suggested fees from Across
       const feeResponse = await this.acrossService.getSuggestedFees({
@@ -76,6 +81,15 @@ export class RebalanceService {
       });
 
       // Check if the amount is within limits
+      if (BigInt(rawAmount) < BigInt(feeResponse.limits.minDeposit)) {
+        throw new Error(
+          `Amount ${amount} ${tokenSymbol} is below minimum deposit limit of ${
+            BigInt(feeResponse.limits.minDeposit) /
+            BigInt(10 ** tokenConfig.decimals)
+          } ${tokenSymbol}`
+        );
+      }
+
       if (BigInt(rawAmount) > BigInt(feeResponse.limits.maxDeposit)) {
         throw new Error(
           `Amount ${amount} ${tokenSymbol} exceeds maximum deposit limit of ${

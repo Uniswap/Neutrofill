@@ -144,6 +144,16 @@ export class AcrossService {
       // Get the SpokePool contract address for the origin chain
       const spokePoolAddress = await this.getSpokePoolAddress(originChainId);
 
+      // Log the deposit parameters for debugging
+      this.logger.debug("Executing deposit with parameters:", {
+        originChainId,
+        spokePoolAddress,
+        inputToken: depositParams.inputToken,
+        inputAmount: depositParams.inputAmount,
+        destinationChainId: depositParams.destinationChainId,
+        recipient: depositParams.recipient,
+      });
+
       // Check if token approval is needed
       if (
         depositParams.inputToken !==
