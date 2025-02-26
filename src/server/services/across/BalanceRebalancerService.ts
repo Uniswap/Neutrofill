@@ -285,6 +285,9 @@ export class BalanceRebalancerService extends EventEmitter {
         amountToRebalanceUsd
       );
 
+      // Update last rebalance time to prevent creating multiple operations in rapid succession
+      this.operationStore.updateLastRebalanceTime();
+
       this.logger.info(
         `Created rebalance operation: ${tokenAmount} ${tokenToRebalance} (${amountToRebalanceUsd} USD) from chain ${sourceChain.chainId} to chain ${destinationChain.chainId}`,
         {
