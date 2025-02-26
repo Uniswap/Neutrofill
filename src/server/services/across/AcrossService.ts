@@ -86,6 +86,7 @@ export class AcrossService {
    * @param depositor - Address of the depositor
    * @param inputToken - Address of the token to deposit
    * @param inputAmount - Amount to deposit (in raw format)
+   * @param destinationChainId - Destination chain ID
    * @param recipient - Optional recipient address (defaults to depositor)
    * @param outputToken - Optional output token (defaults to address(0) for auto-resolve)
    * @returns Parameters for the depositV3 function
@@ -95,6 +96,7 @@ export class AcrossService {
     depositor: Address,
     inputToken: Address,
     inputAmount: bigint,
+    destinationChainId: number,
     recipient?: Address,
     outputToken: Address = "0x0000000000000000000000000000000000000000"
   ): AcrossDepositParams {
@@ -111,7 +113,7 @@ export class AcrossService {
       outputToken,
       inputAmount: inputAmount.toString(),
       outputAmount: outputAmount.toString(),
-      destinationChainId: Number(feeResponse.destinationSpokePoolAddress),
+      destinationChainId,
       exclusiveRelayer: feeResponse.exclusiveRelayer,
       quoteTimestamp: Number(feeResponse.timestamp),
       fillDeadline,
@@ -243,8 +245,8 @@ export class AcrossService {
       const dummyRequest: AcrossFeeRequest = {
         originChainId: chainId,
         destinationChainId: chainId === 1 ? 10 : 1, // If mainnet, use Optimism, otherwise use mainnet
-        token: "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48", // USDC
-        amount: "1000000", // 1 USDC
+        token: "0x0000000000000000000000000000000000000000", // ETH (null address)
+        amount: "1000000000000000", // 0.001 ETH
       };
 
       const feeResponse = await this.getSuggestedFees(dummyRequest);

@@ -90,7 +90,10 @@ export class RebalanceService {
         feeResponse,
         this.accountAddress,
         tokenConfig.address,
-        BigInt(rawAmount)
+        BigInt(rawAmount),
+        toChainId,
+        undefined,
+        "0x0000000000000000000000000000000000000000"
       );
 
       // Execute the deposit
