@@ -10,7 +10,7 @@ export const DEFAULT_REBALANCE_CONFIG: RebalanceConfig = {
     // Ethereum Mainnet
     1: {
       targetPercentage: 10, // 10% of funds on Ethereum
-      triggerThreshold: 0, // Never trigger rebalance
+      triggerThreshold: 0, // Never trigger rebalance to Ethereum
       sourcePriority: 4, // Lowest priority as source
       canBeDestination: false, // Never bridge to Ethereum, only from it
       tokens: {

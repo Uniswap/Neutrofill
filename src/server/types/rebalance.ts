@@ -47,8 +47,9 @@ export interface ChainRebalanceConfig {
 
   /**
    * Trigger percentage threshold
-   * If the actual percentage falls below (targetPercentage - triggerThreshold),
-   * a rebalance will be triggered to bring it back to targetPercentage
+   * If the actual percentage falls below this value, a rebalance
+   * will be triggered to bring it back to targetPercentage
+   * Set to 0 to disable triggering rebalances for this chain
    */
   triggerThreshold: number;
 

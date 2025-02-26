@@ -3,7 +3,7 @@ import type { Address, PublicClient, WalletClient } from "viem";
 import { Logger } from "../../utils/logger.js";
 import type { SupportedChainId } from "../../config/constants.js";
 import type { AggregateBalanceService } from "../balance/AggregateBalanceService.js";
-import { RebalanceService } from "./RebalanceService.js";
+import type { RebalanceService } from "./RebalanceService.js";
 import { RebalanceOperationStore } from "./RebalanceOperationStore.js";
 import type {
   RebalanceConfig,
@@ -19,27 +19,25 @@ export class BalanceRebalancerService extends EventEmitter {
   private readonly logger: Logger;
   private readonly rebalanceService: RebalanceService;
   private readonly operationStore: RebalanceOperationStore;
+  private readonly aggregateBalanceService: AggregateBalanceService;
   private config: RebalanceConfig;
   private updateInterval: NodeJS.Timeout | null = null;
   private readonly UPDATE_INTERVAL = 30000; // 30 seconds
   private readonly MAX_OPERATION_AGE = 7 * 24 * 60 * 60 * 1000; // 7 days
+  private running = false;
 
   constructor(
+    accountAddress: Address,
     publicClients: Record<SupportedChainId, PublicClient>,
     walletClients: Record<SupportedChainId, WalletClient>,
-    private readonly aggregateBalanceService: AggregateBalanceService,
-    accountAddress: Address,
-    config: RebalanceConfig,
-    acrossUniqueIdentifier?: string
+    rebalanceService: RebalanceService,
+    aggregateBalanceService: AggregateBalanceService,
+    config: RebalanceConfig
   ) {
     super();
     this.logger = new Logger("BalanceRebalancerService");
-    this.rebalanceService = new RebalanceService(
-      publicClients,
-      walletClients,
-      accountAddress,
-      acrossUniqueIdentifier
-    );
+    this.rebalanceService = rebalanceService;
+    this.aggregateBalanceService = aggregateBalanceService;
     this.operationStore = new RebalanceOperationStore();
     this.config = config;
 
@@ -51,6 +49,13 @@ export class BalanceRebalancerService extends EventEmitter {
   }
 
   /**
+   * Check if the service is currently running
+   */
+  public isRunning(): boolean {
+    return this.running;
+  }
+
+  /**
    * Start the rebalancing service
    */
   public start(): void {
@@ -58,6 +63,9 @@ export class BalanceRebalancerService extends EventEmitter {
       this.logger.warn("BalanceRebalancerService already running");
       return;
     }
+
+    this.logger.info("Starting BalanceRebalancerService");
+    this.running = true;
 
     // Process any pending operations immediately
     void this.processOperations();
@@ -77,6 +85,7 @@ export class BalanceRebalancerService extends EventEmitter {
     if (this.updateInterval) {
       clearInterval(this.updateInterval);
       this.updateInterval = null;
+      this.running = false;
       this.logger.info("Balance rebalancer service stopped");
     }
   }
@@ -176,7 +185,7 @@ export class BalanceRebalancerService extends EventEmitter {
         // Check if chain is below trigger threshold and can be a destination
         if (
           chainConfig.canBeDestination &&
-          currentPercentage < targetPercentage - triggerThreshold
+          currentPercentage < triggerThreshold
         ) {
           const deficit = targetPercentage - currentPercentage;
           const deficitUsd = (deficit / 100) * balances.totalBalance;
@@ -192,7 +201,7 @@ export class BalanceRebalancerService extends EventEmitter {
         // Check if chain has excess funds and can be a source (sourcePriority > 0)
         else if (
           chainConfig.sourcePriority > 0 &&
-          currentPercentage > targetPercentage + triggerThreshold
+          currentPercentage > targetPercentage
         ) {
           const excess = currentPercentage - targetPercentage;
           const excessUsd = (excess / 100) * balances.totalBalance;

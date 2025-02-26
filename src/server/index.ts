@@ -28,6 +28,9 @@ import { LockStateStore } from "./services/indexer/LockStateStore.js"; // Import
 import { ForcedWithdrawalEnablerService } from "./services/indexer/ForcedWithdrawalEnablerService.js";
 import { WithdrawalExecutorService } from "./services/indexer/WithdrawalExecutorService.js";
 import { WebSocketManager } from "./services/websocket/WebSocketManager.js";
+import { BalanceRebalancerService } from "./services/across/index.js";
+import { AcrossService } from "./services/across/AcrossService.js";
+import { RebalanceService } from "./services/across/RebalanceService.js";
 import type { BroadcastRequest } from "./types/broadcast.js";
 import { deriveClaimHash } from "./utils.js";
 import { Logger } from "./utils/logger.js";
@@ -35,6 +38,7 @@ import { validateBroadcastRequestMiddleware } from "./validation/broadcast.js";
 import { verifyBroadcastRequest } from "./validation/signature.js";
 import { processBroadcastTransaction } from "./helpers/broadcast.js";
 import { checkAndSetTokenApprovals } from "./helpers/approvals.js";
+import { DEFAULT_REBALANCE_CONFIG } from "./config/rebalance.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -158,6 +162,22 @@ const aggregateBalanceService = new AggregateBalanceService(
   priceService
 );
 
+// Initialize Across services
+const acrossService = new AcrossService(publicClients, walletClients);
+const rebalanceService = new RebalanceService(
+  publicClients,
+  walletClients,
+  account.address
+);
+const balanceRebalancerService = new BalanceRebalancerService(
+  account.address,
+  publicClients,
+  walletClients,
+  rebalanceService,
+  aggregateBalanceService,
+  DEFAULT_REBALANCE_CONFIG
+);
+
 // Initialize shared state store
 const lockStateStore = new LockStateStore(account.address);
 
@@ -222,6 +242,7 @@ aggregateBalanceService.start();
 indexerService.start();
 forcedWithdrawalEnablerService.start();
 withdrawalExecutorService.start();
+balanceRebalancerService.start();
 
 // Ensure services are stopped when the process exits
 process.on("SIGTERM", () => {
@@ -231,6 +252,7 @@ process.on("SIGTERM", () => {
   indexerService.stop();
   forcedWithdrawalEnablerService.stop();
   withdrawalExecutorService.stop();
+  balanceRebalancerService.stop();
   process.exit(0);
 });
 
@@ -241,6 +263,7 @@ process.on("SIGINT", () => {
   indexerService.stop();
   forcedWithdrawalEnablerService.stop();
   withdrawalExecutorService.stop();
+  balanceRebalancerService.stop();
   process.exit(0);
 });
 
@@ -454,6 +477,7 @@ app.get("/health", (_req, res) => {
     services: {
       indexer: !!indexerService.getStateStore(),
       processor: true, // Both services are initialized at startup
+      rebalancer: balanceRebalancerService.isRunning(),
     },
   });
 });
