@@ -8,24 +8,55 @@ export interface AcrossFeeRequest {
 }
 
 export interface AcrossTotalRelayFee {
+  pct: string;
   total: string;
-  relayer: string;
-  lpFee: string;
-  protocolFee: string;
+}
+
+export interface AcrossRelayerCapitalFee {
+  pct: string;
+  total: string;
+}
+
+export interface AcrossRelayerGasFee {
+  pct: string;
+  total: string;
+}
+
+export interface AcrossLpFee {
+  pct: string;
+  total: string;
+}
+
+export interface AcrossLimits {
+  minDeposit: string;
+  maxDeposit: string;
+  maxDepositInstant: string;
+  maxDepositShortDelay: string;
+  recommendedDepositInstant: string;
 }
 
 export interface AcrossFeeResponse {
-  totalRelayFee: AcrossTotalRelayFee;
-  timestamp: number;
-  fillSpeedType: "instant" | "shortDelay" | "slow";
-  estimateFillTimeSec: number;
-  maxDepositInstant: string;
-  maxDepositShortDelay: string;
-  maxDeposit: string;
-  recommendedDepositInstant: string;
+  estimatedFillTimeSec: number;
+  capitalFeePct: string;
+  capitalFeeTotal: string;
+  relayGasFeePct: string;
+  relayGasFeeTotal: string;
+  relayFeePct: string;
+  relayFeeTotal: string;
+  lpFeePct: string;
+  timestamp: string;
+  isAmountTooLow: boolean;
+  quoteBlock: string;
   exclusiveRelayer: Address;
   exclusivityDeadline: number;
   spokePoolAddress: Address;
+  destinationSpokePoolAddress: Address;
+  totalRelayFee: AcrossTotalRelayFee;
+  relayerCapitalFee: AcrossRelayerCapitalFee;
+  relayerGasFee: AcrossRelayerGasFee;
+  lpFee: AcrossLpFee;
+  limits: AcrossLimits;
+  fillDeadline: string;
 }
 
 export interface AcrossDepositParams {

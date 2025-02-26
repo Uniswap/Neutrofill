@@ -111,9 +111,9 @@ export class AcrossService {
       outputToken,
       inputAmount: inputAmount.toString(),
       outputAmount: outputAmount.toString(),
-      destinationChainId: Number(feeResponse.spokePoolAddress),
+      destinationChainId: Number(feeResponse.destinationSpokePoolAddress),
       exclusiveRelayer: feeResponse.exclusiveRelayer,
-      quoteTimestamp: feeResponse.timestamp,
+      quoteTimestamp: Number(feeResponse.timestamp),
       fillDeadline,
       exclusivityDeadline: feeResponse.exclusivityDeadline,
       message: "0x", // No message for basic bridging

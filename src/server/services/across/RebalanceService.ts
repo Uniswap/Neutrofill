@@ -76,10 +76,11 @@ export class RebalanceService {
       });
 
       // Check if the amount is within limits
-      if (BigInt(rawAmount) > BigInt(feeResponse.maxDeposit)) {
+      if (BigInt(rawAmount) > BigInt(feeResponse.limits.maxDeposit)) {
         throw new Error(
           `Amount ${amount} ${tokenSymbol} exceeds maximum deposit limit of ${
-            BigInt(feeResponse.maxDeposit) / BigInt(10 ** tokenConfig.decimals)
+            BigInt(feeResponse.limits.maxDeposit) /
+            BigInt(10 ** tokenConfig.decimals)
           } ${tokenSymbol}`
         );
       }
@@ -100,7 +101,7 @@ export class RebalanceService {
 
       this.logger.info(
         `Rebalance transaction sent: ${txHash}. Expected fill time: ${
-          feeResponse.estimateFillTimeSec / 60
+          feeResponse.estimatedFillTimeSec / 60
         } minutes`
       );
 
@@ -180,16 +181,16 @@ export class RebalanceService {
       return {
         fee: totalFee,
         feeToken: tokenSymbol,
-        estimatedFillTime: feeResponse.estimateFillTimeSec,
-        fillSpeedType: feeResponse.fillSpeedType,
+        estimatedFillTime: feeResponse.estimatedFillTimeSec,
         maxDepositInstant:
-          BigInt(feeResponse.maxDepositInstant) /
+          BigInt(feeResponse.limits.maxDepositInstant) /
           BigInt(10 ** tokenConfig.decimals),
         maxDepositShortDelay:
-          BigInt(feeResponse.maxDepositShortDelay) /
+          BigInt(feeResponse.limits.maxDepositShortDelay) /
           BigInt(10 ** tokenConfig.decimals),
         maxDeposit:
-          BigInt(feeResponse.maxDeposit) / BigInt(10 ** tokenConfig.decimals),
+          BigInt(feeResponse.limits.maxDeposit) /
+          BigInt(10 ** tokenConfig.decimals),
       };
     } catch (error) {
       this.logger.error("Error getting rebalance fee estimate:", error);
