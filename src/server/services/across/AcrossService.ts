@@ -238,27 +238,37 @@ export class AcrossService {
    * @returns SpokePool contract address
    */
   private async getSpokePoolAddress(chainId: number): Promise<Address> {
-    // This could be fetched from the API or hardcoded for security
-    // For now, let's fetch it from the API
-    try {
-      // Use a dummy request to get the SpokePool address
-      const dummyRequest: AcrossFeeRequest = {
-        originChainId: chainId,
-        destinationChainId: chainId === 1 ? 10 : 1, // If mainnet, use Optimism, otherwise use mainnet
-        token: "0x0000000000000000000000000000000000000000", // ETH (null address)
-        amount: "1000000000000000", // 0.001 ETH
-      };
+    // Hardcoded SpokePool addresses from Across documentation
+    const spokePoolAddresses: Record<number, Address> = {
+      1: "0x5c7BCd6E7De5423a257D81B442095A1a6ced35C5", // Ethereum
+      10: "0x6f26Bf09B1C792e3228e5467807a900A503c0281", // Optimism
+      137: "0x9295ee1d8C5b022Be115A2AD3c30C72E34e7F096", // Polygon
+      324: "0xE0B015E54d54fc84a6cB9B666099c46adE9335FF", // zkSync
+      8453: "0x09aea4b2242abC8bb4BB78D537A67a245A7bEC64", // Base
+      42161: "0xe35e9842fceaCA96570B734083f4a58e8F7C5f2A", // Arbitrum
+      59144: "0x7E63A5f1a8F0B4d0934B2f2327DAED3F6bb2ee75", // Linea
+      34443: "0x3baD7AD0728f9917d1Bf08af5782dCbD516cDd96", // Mode
+      1135: "0x9552a0a6624A23B848060AE5901659CDDa1f83f8", // Lisk
+      81457: "0x2D509190Ed0172ba588407D4c2df918F955Cc6E1", // Blast
+      690: "0x13fDac9F9b4777705db45291bbFF3c972c6d1d97", // Redstone
+      534352: "0x3baD7AD0728f9917d1Bf08af5782dCbD516cDd96", // Scroll
+      7777777: "0x13fDac9F9b4777705db45291bbFF3c972c6d1d97", // Zora
+      480: "0x09aea4b2242abC8bb4BB78D537A67a245A7bEC64", // WorldChain
+      41455: "0x13fDac9F9b4777705db45291bbFF3c972c6d1d97", // AlephZero
+      57073: "0xeF684C38F94F48775959ECf2012D7E864ffb9dd4", // Ink
+      1868: "0x3baD7AD0728f9917d1Bf08af5782dCbD516cDd96", // Soneium
+      130: "0x09aea4b2242abC8bb4BB78D537A67a245A7bEC64", // Unichain
+    };
 
-      const feeResponse = await this.getSuggestedFees(dummyRequest);
-
-      return feeResponse.spokePoolAddress;
-    } catch (error) {
-      this.logger.error(
-        `Error getting SpokePool address for chain ${chainId}:`,
-        error
-      );
-      throw error;
+    const spokePoolAddress = spokePoolAddresses[chainId];
+    if (!spokePoolAddress) {
+      throw new Error(`No SpokePool address available for chain ID ${chainId}`);
     }
+
+    this.logger.info(
+      `Using SpokePool address ${spokePoolAddress} for chain ${chainId}`
+    );
+    return spokePoolAddress;
   }
 
   /**
