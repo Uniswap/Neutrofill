@@ -29,6 +29,7 @@ import { ForcedWithdrawalEnablerService } from "./services/indexer/ForcedWithdra
 import { WithdrawalExecutorService } from "./services/indexer/WithdrawalExecutorService.js";
 import { WebSocketManager } from "./services/websocket/WebSocketManager.js";
 import { BalanceRebalancerService } from "./services/across/index.js";
+import { UniswapBalanceRebalancerService } from "./services/uniswap/index.js";
 import { AcrossService } from "./services/across/AcrossService.js";
 import { RebalanceService } from "./services/across/RebalanceService.js";
 import type { BroadcastRequest } from "./types/broadcast.js";
@@ -178,6 +179,15 @@ const balanceRebalancerService = new BalanceRebalancerService(
   DEFAULT_REBALANCE_CONFIG
 );
 
+// Initialize Uniswap services
+const uniswapBalanceRebalancerService = new UniswapBalanceRebalancerService(
+  publicClients,
+  walletClients,
+  account.address,
+  aggregateBalanceService,
+  tokenBalanceService
+);
+
 // Initialize shared state store
 const lockStateStore = new LockStateStore(account.address);
 
@@ -243,6 +253,7 @@ indexerService.start();
 forcedWithdrawalEnablerService.start();
 withdrawalExecutorService.start();
 balanceRebalancerService.start();
+uniswapBalanceRebalancerService.start();
 
 // Ensure services are stopped when the process exits
 process.on("SIGTERM", () => {
@@ -253,6 +264,7 @@ process.on("SIGTERM", () => {
   forcedWithdrawalEnablerService.stop();
   withdrawalExecutorService.stop();
   balanceRebalancerService.stop();
+  uniswapBalanceRebalancerService.stop();
   process.exit(0);
 });
 
@@ -264,6 +276,7 @@ process.on("SIGINT", () => {
   forcedWithdrawalEnablerService.stop();
   withdrawalExecutorService.stop();
   balanceRebalancerService.stop();
+  uniswapBalanceRebalancerService.stop();
   process.exit(0);
 });
 
@@ -478,6 +491,7 @@ app.get("/health", (_req, res) => {
       indexer: !!indexerService.getStateStore(),
       processor: true, // Both services are initialized at startup
       rebalancer: balanceRebalancerService.isRunning(),
+      uniswapRebalancer: true, // UniswapBalanceRebalancerService is always running after initialization
     },
   });
 });
