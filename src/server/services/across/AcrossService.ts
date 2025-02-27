@@ -145,7 +145,7 @@ export class AcrossService {
       const spokePoolAddress = await this.getSpokePoolAddress(originChainId);
 
       // Log the deposit parameters for debugging
-      this.logger.debug("Executing deposit with parameters:", {
+      this.logger.info("Executing deposit with parameters:", {
         originChainId,
         spokePoolAddress,
         inputToken: depositParams.inputToken,
@@ -393,6 +393,23 @@ export class AcrossService {
           `No public client available for chain ID ${params.destinationChainId}`
         );
       }
+
+      this.logger.info(
+        `${[
+          params.depositor,
+          params.recipient,
+          params.inputToken,
+          params.outputToken,
+          BigInt(params.inputAmount).toString(),
+          BigInt(params.outputAmount).toString(),
+          BigInt(params.destinationChainId).toString(),
+          params.exclusiveRelayer,
+          params.quoteTimestamp,
+          params.fillDeadline,
+          params.exclusivityDeadline,
+          params.message as `0x${string}`,
+        ]}`
+      );
 
       // Encode the function call
       const encodedCall = encodeFunctionData({

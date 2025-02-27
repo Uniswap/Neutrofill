@@ -164,6 +164,12 @@ export class BalanceRebalancerService extends EventEmitter {
         excess: number;
         excessUsd: number;
         sourcePriority: number;
+        availableTokens: Array<{
+          token: string;
+          balanceUsd: number;
+          rawBalance: string;
+          priority: number;
+        }>;
       }> = [];
 
       // Analyze each chain's balance
@@ -206,14 +212,52 @@ export class BalanceRebalancerService extends EventEmitter {
           const excess = currentPercentage - targetPercentage;
           const excessUsd = (excess / 100) * balances.totalBalance;
 
-          chainsWithExcess.push({
-            chainId,
-            currentPercentage,
-            targetPercentage,
-            excess,
-            excessUsd,
-            sourcePriority: chainConfig.sourcePriority,
-          });
+          // Get available tokens on this chain that can be used for rebalancing
+          const availableTokens = Object.entries(chainConfig.tokens)
+            .filter(([token, config]) => {
+              // Check if token is enabled for rebalancing
+              if (!config.enabled) {
+                return false;
+              }
+
+              // Check if token has sufficient balance on source chain
+              const tokenBalance = this.getTokenBalance(
+                token,
+                chainId,
+                balances
+              );
+              const tokenBalanceUsd = this.getTokenBalanceUsd(
+                token,
+                chainId,
+                balances
+              );
+
+              return (
+                tokenBalance &&
+                tokenBalanceUsd &&
+                tokenBalanceUsd > this.config.global.minRebalanceUsdValue
+              );
+            })
+            .map(([token, config]) => ({
+              token,
+              balanceUsd:
+                this.getTokenBalanceUsd(token, chainId, balances) || 0,
+              rawBalance: this.getTokenBalance(token, chainId, balances) || "0",
+              priority: config.priority,
+            }));
+
+          // Only consider this chain if it has at least one available token
+          if (availableTokens.length > 0) {
+            chainsWithExcess.push({
+              chainId,
+              currentPercentage,
+              targetPercentage,
+              excess,
+              excessUsd,
+              sourcePriority: chainConfig.sourcePriority,
+              availableTokens,
+            });
+          }
         }
       }
 
@@ -241,22 +285,24 @@ export class BalanceRebalancerService extends EventEmitter {
       // Get the highest priority source chain
       const sourceChain = chainsWithExcess[0];
 
-      // Determine which token to rebalance
-      const tokenToRebalance = this.selectTokenForRebalance(
-        sourceChain.chainId,
-        destinationChain.chainId,
-        balances
-      );
-
-      if (!tokenToRebalance) {
-        this.logger.debug("No suitable token found for rebalancing");
+      if (!sourceChain) {
+        this.logger.debug("No source chains with available tokens found");
         return;
       }
 
-      // Calculate the amount to rebalance
+      // Sort available tokens by priority (highest first)
+      sourceChain.availableTokens.sort((a, b) => b.priority - a.priority);
+
+      // Get the highest priority token
+      const tokenInfo = sourceChain.availableTokens[0];
+      const tokenToRebalance = tokenInfo.token;
+
+      // Calculate the amount to rebalance, considering the actual token balance
+      const maxTokenUsd = tokenInfo.balanceUsd;
       const amountToRebalanceUsd = Math.min(
         destinationChain.deficitUsd,
         sourceChain.excessUsd,
+        maxTokenUsd,
         this.config.global.maxRebalanceUsdValue
       );
 
