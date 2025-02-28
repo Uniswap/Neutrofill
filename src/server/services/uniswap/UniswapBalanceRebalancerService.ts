@@ -8,6 +8,7 @@ import type {
   AggregateBalance,
   TokenBalance as ChainTokenBalance,
 } from "../../types/balance.js";
+import type { RebalanceConfig } from "../../types/rebalance.js";
 
 interface UniswapTokenRebalanceTarget {
   symbol: string;
@@ -31,13 +32,16 @@ export class UniswapBalanceRebalancerService extends EventEmitter {
   private isRebalancing = false;
   private lastRebalanceTime = 0;
   private readonly REBALANCE_COOLDOWN = 60000; // 1 minute cooldown between rebalances
+  private minRebalanceUsdValue: number;
+  private maxRebalanceUsdValue: number;
 
   constructor(
     publicClients: Record<number, PublicClient>,
     walletClients: Record<number, WalletClient>,
     accountAddress: Address,
     aggregateBalanceService: AggregateBalanceService,
-    tokenBalanceService: TokenBalanceService
+    tokenBalanceService: TokenBalanceService,
+    config: RebalanceConfig
   ) {
     super();
     this.logger = new Logger("UniswapBalanceRebalancerService");
@@ -58,6 +62,19 @@ export class UniswapBalanceRebalancerService extends EventEmitter {
     ];
 
     this.logger.info("UniswapBalanceRebalancerService initialized");
+
+    // Initialize with config values
+    this.minRebalanceUsdValue = config.global.minRebalanceUsdValue;
+    this.maxRebalanceUsdValue = config.global.maxRebalanceUsdValue;
+  }
+
+  /**
+   * Update the rebalance configuration
+   */
+  public updateConfig(config: RebalanceConfig): void {
+    this.minRebalanceUsdValue = config.global.minRebalanceUsdValue;
+    this.maxRebalanceUsdValue = config.global.maxRebalanceUsdValue;
+    this.logger.info("Updated rebalance configuration");
   }
 
   /**
@@ -309,18 +326,13 @@ export class UniswapBalanceRebalancerService extends EventEmitter {
         amountToSwap = newAmount;
       }
 
-      // Ensure the amount is reasonable (not too small)
-      if (amountToSwap < 0.001 && fromToken !== "USDC") {
-        this.logger.info(
-          `Swap amount too small (${amountToSwap} ${fromToken}), skipping rebalance`
-        );
-        this.isRebalancing = false;
-        return;
-      }
+      // Calculate USD value of the swap
+      const usdValue = amountToSwap * excessTokenPrice;
 
-      if (fromToken === "USDC" && amountToSwap < 1) {
+      // Check if the amount is below the minimum USD value threshold
+      if (usdValue < this.minRebalanceUsdValue) {
         this.logger.info(
-          `Swap amount too small (${amountToSwap} ${fromToken}), skipping rebalance`
+          `Swap amount ${amountToSwap} ${fromToken} (${usdValue.toFixed(2)} USD) is below minimum threshold of ${this.minRebalanceUsdValue} USD, skipping rebalance`
         );
         this.isRebalancing = false;
         return;

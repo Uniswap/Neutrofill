@@ -185,7 +185,8 @@ const uniswapBalanceRebalancerService = new UniswapBalanceRebalancerService(
   walletClients,
   account.address,
   aggregateBalanceService,
-  tokenBalanceService
+  tokenBalanceService,
+  DEFAULT_REBALANCE_CONFIG
 );
 
 // Initialize shared state store
