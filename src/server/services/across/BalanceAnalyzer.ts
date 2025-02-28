@@ -10,6 +10,7 @@ import type { RebalanceOperationStore } from "./RebalanceOperationStore.js";
 import type { RebalanceService } from "./RebalanceService.js";
 import { BalanceCalculator } from "./BalanceCalculator.js";
 import { RebalanceDecisionMaker } from "./RebalanceDecisionMaker.js";
+import { TokenUtils } from "./TokenUtils.js";
 
 /**
  * Service for analyzing balances and determining rebalance needs
@@ -21,6 +22,7 @@ export class BalanceAnalyzer {
   private readonly operationStore: RebalanceOperationStore;
   private readonly balanceCalculator: BalanceCalculator;
   private readonly decisionMaker: RebalanceDecisionMaker;
+  private readonly tokenUtils: TokenUtils;
   private config: RebalanceConfig;
 
   constructor(
@@ -33,6 +35,7 @@ export class BalanceAnalyzer {
     this.rebalanceService = rebalanceService;
     this.operationStore = operationStore;
     this.config = config;
+    this.tokenUtils = new TokenUtils();
 
     // Initialize the balance calculator and decision maker
     this.balanceCalculator = new BalanceCalculator(config);
@@ -86,6 +89,29 @@ export class BalanceAnalyzer {
           tokenPercentagesByChain
         );
 
+      // Log detailed information about chains needing funds and chains with excess
+      this.logger.info(
+        `Potential rebalance analysis: ${chainsNeedingFunds.length} chains need funds, ${chainsWithExcess.length} chains have excess`,
+        {
+          chainsNeedingFunds: chainsNeedingFunds.map((chain) => ({
+            chainId: chain.chainId,
+            deficit: chain.deficit,
+            token: chain.token,
+            currentPercentage: chain.currentPercentage,
+            targetPercentage: chain.targetPercentage,
+            tokenCurrentPercentage: chain.tokenCurrentPercentage,
+            tokenTargetPercentage: chain.tokenTargetPercentage,
+          })),
+          chainsWithExcess: chainsWithExcess.map((chain) => ({
+            chainId: chain.chainId,
+            excess: chain.excess,
+            sourcePriority: chain.sourcePriority,
+            currentPercentage: chain.currentPercentage,
+            targetPercentage: chain.targetPercentage,
+          })),
+        }
+      );
+
       // If no chains need funds or no chains have excess, no rebalancing needed
       if (chainsNeedingFunds.length === 0 || chainsWithExcess.length === 0) {
         return;
@@ -104,146 +130,204 @@ export class BalanceAnalyzer {
         return b.excess - a.excess;
       });
 
-      // Get the chain with the largest deficit
-      const destinationChain = chainsNeedingFunds[0];
+      // Try each destination chain in order until we find one that works
+      for (const destinationChain of chainsNeedingFunds) {
+        // Try each source chain in order until we find one that works
+        for (const sourceChain of chainsWithExcess) {
+          // Log the selected source and destination chains
+          this.logger.info(
+            `Trying source chain ${sourceChain.chainId} and destination chain ${destinationChain.chainId} for potential rebalance`,
+            {
+              sourceChain: {
+                chainId: sourceChain.chainId,
+                excess: sourceChain.excess,
+                sourcePriority: sourceChain.sourcePriority,
+                currentPercentage: sourceChain.currentPercentage,
+                targetPercentage: sourceChain.targetPercentage,
+              },
+              destinationChain: {
+                chainId: destinationChain.chainId,
+                deficit: destinationChain.deficit,
+                token: destinationChain.token,
+                currentPercentage: destinationChain.currentPercentage,
+                targetPercentage: destinationChain.targetPercentage,
+              },
+              specificToken: destinationChain.token,
+            }
+          );
 
-      // If this is a token-specific deficit, prioritize that token
-      const specificToken = destinationChain.token;
+          // If this is a token-specific deficit, prioritize that token
+          const specificToken = destinationChain.token;
 
-      // Get the highest priority source chain
-      const sourceChain = chainsWithExcess[0];
+          // Determine the token to rebalance
+          const { tokenToRebalance, tokenInfo } =
+            this.decisionMaker.selectTokenToRebalance(
+              sourceChain,
+              specificToken
+            );
 
-      if (!sourceChain) {
-        this.logger.debug("No source chains with available tokens found");
-        return;
-      }
+          // Log the selected token
+          this.logger.info(
+            `Selected token ${tokenToRebalance} for rebalance from chain ${sourceChain.chainId} to chain ${destinationChain.chainId}`,
+            {
+              tokenToRebalance,
+              tokenInfo,
+              specificToken,
+            }
+          );
 
-      // Determine the token to rebalance
-      const { tokenToRebalance, tokenInfo } =
-        this.decisionMaker.selectTokenToRebalance(sourceChain, specificToken);
-
-      // Check if there's a similar pending operation
-      if (
-        this.operationStore.hasSimilarPendingOperation(
-          sourceChain.chainId,
-          destinationChain.chainId,
-          tokenToRebalance
-        )
-      ) {
-        this.logger.info(
-          `Skipping rebalance from chain ${sourceChain.chainId} to chain ${destinationChain.chainId} for token ${tokenToRebalance} due to similar pending operation`
-        );
-        return;
-      }
-
-      // Check if there's a recent failed attempt for this rebalance
-      if (
-        this.failureTracker.hasRecentFailedAttempt(
-          sourceChain.chainId,
-          destinationChain.chainId,
-          tokenToRebalance,
-          balances
-        )
-      ) {
-        this.logger.info(
-          `Skipping rebalance from chain ${sourceChain.chainId} to chain ${destinationChain.chainId} due to recent failed attempt`
-        );
-        return;
-      }
-
-      // Calculate the amount to rebalance
-      const { amountToRebalanceUsd, tokenAmount } =
-        this.decisionMaker.calculateRebalanceAmount(
-          destinationChain,
-          sourceChain,
-          tokenInfo,
-          tokenToRebalance,
-          balances
-        );
-
-      // Check if the amount is sufficient for Across protocol
-      try {
-        // Get fee estimate to check minimum limits
-        const feeEstimate = await this.rebalanceService.getRebalanceFeeEstimate(
-          sourceChain.chainId,
-          destinationChain.chainId,
-          tokenToRebalance,
-          tokenAmount
-        );
-
-        // Include minimum amount information in logs
-        this.logger.info(
-          `Rebalance fee estimate for ${tokenAmount} ${tokenToRebalance}: ${feeEstimate.fee} ${feeEstimate.feeToken}`,
-          {
-            estimatedFillTime: feeEstimate.estimatedFillTime,
-            maxDepositInstant: feeEstimate.maxDepositInstant,
-            maxDepositShortDelay: feeEstimate.maxDepositShortDelay,
-            maxDeposit: feeEstimate.maxDeposit,
+          // Check if there's a similar pending operation
+          if (
+            this.operationStore.hasSimilarPendingOperation(
+              sourceChain.chainId,
+              destinationChain.chainId,
+              tokenToRebalance
+            )
+          ) {
+            this.logger.info(
+              `Skipping rebalance from chain ${sourceChain.chainId} to chain ${destinationChain.chainId} for token ${tokenToRebalance} due to similar pending operation`
+            );
+            continue; // Try the next source chain
           }
-        );
 
-        // Create rebalance operation
-        const operation = this.operationStore.createOperation(
-          sourceChain.chainId,
-          destinationChain.chainId,
-          tokenToRebalance,
-          tokenAmount,
-          amountToRebalanceUsd
-        );
+          // Check if there's a recent failed attempt for this rebalance
+          if (
+            this.failureTracker.hasRecentFailedAttempt(
+              sourceChain.chainId,
+              destinationChain.chainId,
+              tokenToRebalance,
+              balances
+            )
+          ) {
+            this.logger.info(
+              `Skipping rebalance from chain ${sourceChain.chainId} to chain ${destinationChain.chainId} due to recent failed attempt`
+            );
+            continue; // Try the next source chain
+          }
 
-        // Update last rebalance time to prevent creating multiple operations in rapid succession
-        this.operationStore.updateLastRebalanceTime();
+          // Calculate the amount to rebalance
+          const { amountToRebalanceUsd, tokenAmount } =
+            this.decisionMaker.calculateRebalanceAmount(
+              destinationChain,
+              sourceChain,
+              tokenInfo,
+              tokenToRebalance,
+              balances
+            );
 
-        // Include token-specific information in the log if this was a token-specific rebalance
-        const logDetails: Record<string, unknown> = {
-          operation,
-          sourceChain: {
-            chainId: sourceChain.chainId,
-            currentPercentage: sourceChain.currentPercentage,
-            targetPercentage: sourceChain.targetPercentage,
-            excess: sourceChain.excess,
-            sourcePriority: sourceChain.sourcePriority,
-          },
-          destinationChain: {
-            chainId: destinationChain.chainId,
-            currentPercentage: destinationChain.currentPercentage,
-            targetPercentage: destinationChain.targetPercentage,
-            deficit: destinationChain.deficit,
-            canBeDestination:
-              this.config.chains[destinationChain.chainId].canBeDestination,
-          },
-        };
+          // Log the calculated rebalance amount
+          this.logger.info(
+            `Calculated rebalance amount: ${tokenAmount} ${tokenToRebalance} (${amountToRebalanceUsd} USD) from chain ${sourceChain.chainId} to chain ${destinationChain.chainId}`,
+            {
+              tokenAmount,
+              tokenToRebalance,
+              amountToRebalanceUsd,
+              sourceChainId: sourceChain.chainId,
+              destinationChainId: destinationChain.chainId,
+              sourceTokenBalance: this.tokenUtils.getTokenBalance(
+                tokenToRebalance,
+                sourceChain.chainId,
+                balances
+              ),
+              destinationTokenBalance: this.tokenUtils.getTokenBalance(
+                tokenToRebalance,
+                destinationChain.chainId,
+                balances
+              ),
+            }
+          );
 
-        // Add token-specific details if applicable
-        if (destinationChain.token) {
-          logDetails.tokenSpecificRebalance = {
-            token: destinationChain.token,
-            currentPercentage: destinationChain.tokenCurrentPercentage,
-            targetPercentage: destinationChain.tokenTargetPercentage,
-          };
+          // Check if the amount is sufficient for Across protocol
+          try {
+            // Get fee estimate to check minimum limits
+            const feeEstimate =
+              await this.rebalanceService.getRebalanceFeeEstimate(
+                sourceChain.chainId,
+                destinationChain.chainId,
+                tokenToRebalance,
+                tokenAmount
+              );
+
+            // Include minimum amount information in logs
+            this.logger.info(
+              `Rebalance fee estimate for ${tokenAmount} ${tokenToRebalance}: ${feeEstimate.fee} ${feeEstimate.feeToken}`,
+              {
+                estimatedFillTime: feeEstimate.estimatedFillTime,
+                maxDepositInstant: feeEstimate.maxDepositInstant,
+                maxDepositShortDelay: feeEstimate.maxDepositShortDelay,
+                maxDeposit: feeEstimate.maxDeposit,
+              }
+            );
+
+            // Create rebalance operation
+            const operation = this.operationStore.createOperation(
+              sourceChain.chainId,
+              destinationChain.chainId,
+              tokenToRebalance,
+              tokenAmount,
+              amountToRebalanceUsd
+            );
+
+            // Update last rebalance time to prevent creating multiple operations in rapid succession
+            this.operationStore.updateLastRebalanceTime();
+
+            // Include token-specific information in the log if this was a token-specific rebalance
+            const logDetails: Record<string, unknown> = {
+              operation,
+              sourceChain: {
+                chainId: sourceChain.chainId,
+                currentPercentage: sourceChain.currentPercentage,
+                targetPercentage: sourceChain.targetPercentage,
+                excess: sourceChain.excess,
+                sourcePriority: sourceChain.sourcePriority,
+              },
+              destinationChain: {
+                chainId: destinationChain.chainId,
+                currentPercentage: destinationChain.currentPercentage,
+                targetPercentage: destinationChain.targetPercentage,
+                deficit: destinationChain.deficit,
+                canBeDestination:
+                  this.config.chains[destinationChain.chainId].canBeDestination,
+              },
+            };
+
+            // Add token-specific details if applicable
+            if (destinationChain.token) {
+              logDetails.tokenSpecificRebalance = {
+                token: destinationChain.token,
+                currentPercentage: destinationChain.tokenCurrentPercentage,
+                targetPercentage: destinationChain.tokenTargetPercentage,
+              };
+            }
+
+            this.logger.info(
+              `Created rebalance operation: ${tokenAmount} ${tokenToRebalance} (${amountToRebalanceUsd} USD) from chain ${sourceChain.chainId} to chain ${destinationChain.chainId}`,
+              logDetails
+            );
+
+            return operation;
+          } catch (error) {
+            // If there's an error with the fee estimate (e.g., amount too low), log it and try the next source chain
+            this.logger.warn(
+              `Skipping rebalance operation due to fee estimation error: ${error instanceof Error ? error.message : String(error)}`
+            );
+            this.failureTracker.addFailedAttempt(
+              sourceChain.chainId,
+              destinationChain.chainId,
+              tokenToRebalance,
+              tokenAmount,
+              error instanceof Error ? error.message : String(error),
+              balances
+            );
+          }
         }
-
-        this.logger.info(
-          `Created rebalance operation: ${tokenAmount} ${tokenToRebalance} (${amountToRebalanceUsd} USD) from chain ${sourceChain.chainId} to chain ${destinationChain.chainId}`,
-          logDetails
-        );
-
-        return operation;
-      } catch (error) {
-        // If there's an error with the fee estimate (e.g., amount too low), log it and don't create the operation
-        this.logger.warn(
-          `Skipping rebalance operation due to fee estimation error: ${error instanceof Error ? error.message : String(error)}`
-        );
-        this.failureTracker.addFailedAttempt(
-          sourceChain.chainId,
-          destinationChain.chainId,
-          tokenToRebalance,
-          tokenAmount,
-          error instanceof Error ? error.message : String(error),
-          balances
-        );
-        return;
       }
+
+      // If we get here, we tried all combinations and none worked
+      this.logger.info(
+        "No viable rebalance operations found after trying all combinations"
+      );
+      return;
     } catch (error) {
       this.logger.error("Error checking if rebalance is needed:", error);
     }
