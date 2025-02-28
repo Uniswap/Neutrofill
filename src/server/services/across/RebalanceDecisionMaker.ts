@@ -108,8 +108,8 @@ export class RebalanceDecisionMaker {
     // Calculate the amount to rebalance, considering the actual token balance
     const maxTokenUsd = tokenInfo.balanceUsd;
     const amountToRebalanceUsd = Math.min(
-      destinationChain.deficitUsd,
-      sourceChain.excessUsd,
+      Math.abs(destinationChain.deficitUsd),
+      Math.abs(sourceChain.excessUsd),
       maxTokenUsd,
       this.maxRebalanceUsdValue
     );
@@ -128,6 +128,10 @@ export class RebalanceDecisionMaker {
     // Calculate token amount based on USD value and token price
     const tokenAmount = amountToRebalanceUsd / tokenPrice;
 
-    return { amountToRebalanceUsd, tokenAmount };
+    // Ensure we always return positive values
+    return {
+      amountToRebalanceUsd: Math.abs(amountToRebalanceUsd),
+      tokenAmount: Math.abs(tokenAmount),
+    };
   }
 }

@@ -48,29 +48,40 @@ export class BalanceCalculator {
       USDC: balances.tokenBalances.usd.USDC,
     };
 
-    // Calculate the percentage of each token on each chain
-    for (const [chainIdStr, chainConfig] of Object.entries(
-      this.config.chains
-    )) {
-      const chainId = Number(chainIdStr) as SupportedChainId;
+    // Log token totals for debugging
+    this.logger.debug(
+      `Token total USD values: ETH=${tokenTotalUsd.ETH}, WETH=${tokenTotalUsd.WETH}, USDC=${tokenTotalUsd.USDC}`
+    );
 
-      // Skip if chain doesn't have balance data yet
-      if (!balances.chainBalances[chainId]) {
-        continue;
-      }
+    // For each chain, calculate the percentage of each token
+    for (const chainId of Object.keys(balances.chainBalances).map(Number)) {
+      for (const token of Object.keys(tokenTotalUsd)) {
+        const tokenBalanceUsd =
+          this.tokenUtils.getTokenBalanceUsd(
+            token,
+            chainId as SupportedChainId,
+            balances
+          ) || 0; // Default to 0 if undefined
 
-      // Calculate token percentages for this chain
-      for (const token of ["ETH", "WETH", "USDC"] as const) {
-        const tokenUsdOnChain = balances.chainBalances[chainId].usd[token];
-        const tokenTotalUsdAllChains = tokenTotalUsd[token];
-
-        if (tokenTotalUsdAllChains > 0) {
-          tokenPercentagesByChain[token][chainId] =
-            (tokenUsdOnChain / tokenTotalUsdAllChains) * 100;
+        // Calculate percentage of total for this token on this chain
+        if (tokenTotalUsd[token as keyof typeof tokenTotalUsd] > 0) {
+          tokenPercentagesByChain[token][chainId as SupportedChainId] =
+            (tokenBalanceUsd /
+              tokenTotalUsd[token as keyof typeof tokenTotalUsd]) *
+            100;
         } else {
-          tokenPercentagesByChain[token][chainId] = 0;
+          // If total is 0, set percentage to 0
+          tokenPercentagesByChain[token][chainId as SupportedChainId] = 0;
         }
       }
+    }
+
+    // Log token percentages by chain for debugging
+    for (const token of Object.keys(tokenPercentagesByChain)) {
+      this.logger.debug(
+        `Token ${token} percentages by chain:`,
+        tokenPercentagesByChain[token]
+      );
     }
 
     this.logger.debug("Token percentages by chain:", tokenPercentagesByChain);
@@ -154,6 +165,30 @@ export class BalanceCalculator {
       const targetPercentage = chainConfig.targetPercentage;
       const triggerThreshold = chainConfig.triggerThreshold;
 
+      // Log token-specific percentages for this chain
+      this.logger.debug(
+        `Chain ${chainId} balance analysis - Overall: ${currentPercentage.toFixed(2)}% (target: ${targetPercentage}%, threshold: ${triggerThreshold}%)`,
+        {
+          chainId,
+          currentPercentage,
+          targetPercentage,
+          triggerThreshold,
+          tokenPercentages: Object.entries(chainConfig.tokens)
+            .filter(
+              ([token]) =>
+                tokenPercentagesByChain[token]?.[chainId] !== undefined
+            )
+            .map(([token, config]) => ({
+              token,
+              currentPercentage: tokenPercentagesByChain[token][chainId],
+              targetPercentage:
+                config.targetPercentage || chainConfig.targetPercentage,
+              triggerThreshold:
+                config.triggerThreshold || chainConfig.triggerThreshold,
+            })),
+        }
+      );
+
       // Check if chain is below trigger threshold and can be a destination
       if (
         chainConfig.canBeDestination &&
@@ -179,25 +214,42 @@ export class BalanceCalculator {
           continue;
         }
 
-        // Skip if token doesn't have balance data
+        // Get token balance on this chain
+        const tokenBalanceUsd = this.tokenUtils.getTokenBalanceUsd(
+          tokenSymbol,
+          chainId,
+          balances
+        );
+
+        // Check if token has zero balance but is configured for this chain
+        const hasZeroBalance =
+          tokenBalanceUsd === 0 || tokenBalanceUsd === undefined;
+
+        // Get token percentage if available
+        let tokenCurrentPercentage = 0;
         if (
-          !tokenPercentagesByChain[tokenSymbol] ||
-          !tokenPercentagesByChain[tokenSymbol][chainId]
+          tokenPercentagesByChain[tokenSymbol] &&
+          tokenPercentagesByChain[tokenSymbol][chainId] !== undefined
         ) {
-          continue;
+          tokenCurrentPercentage =
+            tokenPercentagesByChain[tokenSymbol][chainId];
         }
 
-        const tokenCurrentPercentage =
-          tokenPercentagesByChain[tokenSymbol][chainId];
         const tokenTargetPercentage =
           tokenConfig.targetPercentage || chainConfig.targetPercentage;
         const tokenTriggerThreshold =
           tokenConfig.triggerThreshold || chainConfig.triggerThreshold;
 
+        // Log token-specific analysis
+        this.logger.debug(
+          `Token ${tokenSymbol} on chain ${chainId}: current=${tokenCurrentPercentage.toFixed(2)}%, target=${tokenTargetPercentage}%, threshold=${tokenTriggerThreshold}%, hasZeroBalance=${hasZeroBalance}`
+        );
+
         // Check if this specific token is below its threshold on this chain
+        // Also consider chains with zero balance of a token as needing funds
         if (
           chainConfig.canBeDestination &&
-          tokenCurrentPercentage < tokenTriggerThreshold
+          (tokenCurrentPercentage < tokenTriggerThreshold || hasZeroBalance)
         ) {
           const tokenDeficit = tokenTargetPercentage - tokenCurrentPercentage;
           const tokenDeficitUsd =
@@ -223,72 +275,137 @@ export class BalanceCalculator {
       // Check if chain has excess funds and can be a source (sourcePriority > 0)
       if (
         chainConfig.sourcePriority > 0 &&
-        currentPercentage > targetPercentage
-      ) {
-        const excess = currentPercentage - targetPercentage;
-        const excessUsd = (excess / 100) * balances.totalBalance;
+        (currentPercentage > targetPercentage ||
+          // Check if any token on this chain is significantly above its target percentage
+          Array.from(Object.entries(chainConfig.tokens)).some(
+            ([token, config]) => {
+              if (!config.enabled) return false;
 
-        // Get available tokens on this chain that can be used for rebalancing
-        const availableTokens = Object.entries(chainConfig.tokens)
-          .filter(([token, config]) => {
-            // Check if token is enabled for rebalancing
-            if (!config.enabled) {
-              return false;
+              const tokenCurrentPercentage =
+                tokenPercentagesByChain[token]?.[chainId] || 0;
+              const tokenTargetPercentage =
+                config.targetPercentage || chainConfig.targetPercentage;
+
+              // Consider this chain as having excess if any token is significantly above target
+              return tokenCurrentPercentage > tokenTargetPercentage + 5; // 5% buffer
             }
+          ))
+      ) {
+        // Calculate overall chain excess
+        const excess = currentPercentage - targetPercentage;
 
-            // Check if token has sufficient balance on source chain
-            const tokenBalance = this.tokenUtils.getTokenBalance(
-              token,
-              chainId,
-              balances
-            );
-            const tokenBalanceUsd = this.tokenUtils.getTokenBalanceUsd(
-              token,
-              chainId,
-              balances
-            );
+        // Only proceed if there's an actual excess (greater than 0)
+        if (excess > 0) {
+          const excessUsd = (excess / 100) * balances.totalBalance;
 
-            return (
-              tokenBalance &&
-              tokenBalanceUsd &&
-              tokenBalanceUsd > this.config.global.minRebalanceUsdValue
-            );
-          })
-          .map(([token, config]) => {
-            // Calculate token-specific excess if applicable
+          // Find the token with the highest excess percentage (if any)
+          let highestExcessToken = {
+            token: "",
+            excessPercentage: 0,
+            excessUsd: 0,
+          };
+
+          for (const [token, config] of Object.entries(chainConfig.tokens)) {
+            if (!config.enabled) continue;
+
             const tokenCurrentPercentage =
               tokenPercentagesByChain[token]?.[chainId] || 0;
             const tokenTargetPercentage =
               config.targetPercentage || chainConfig.targetPercentage;
-            const tokenExcessPercentage =
-              tokenCurrentPercentage > tokenTargetPercentage
-                ? tokenCurrentPercentage - tokenTargetPercentage
-                : 0;
+            const tokenExcessPercentage = Math.max(
+              0,
+              tokenCurrentPercentage - tokenTargetPercentage
+            );
 
-            return {
-              token,
-              balanceUsd:
-                this.tokenUtils.getTokenBalanceUsd(token, chainId, balances) ||
-                0,
-              rawBalance:
-                this.tokenUtils.getTokenBalance(token, chainId, balances) ||
-                "0",
-              priority: config.priority,
-              excessPercentage: tokenExcessPercentage,
-            };
-          });
+            if (tokenExcessPercentage > highestExcessToken.excessPercentage) {
+              const tokenTotalUsd =
+                balances.tokenBalances.usd[
+                  token as keyof typeof balances.tokenBalances.usd
+                ] || 0;
+              const tokenExcessUsd =
+                (tokenExcessPercentage / 100) * tokenTotalUsd;
 
-        // Only consider this chain if it has at least one available token
-        if (availableTokens.length > 0) {
-          chainsWithExcess.push({
-            chainId,
-            currentPercentage,
-            targetPercentage,
-            excess,
-            excessUsd,
-            sourcePriority: chainConfig.sourcePriority,
-            availableTokens,
-          });
+              highestExcessToken = {
+                token,
+                excessPercentage: tokenExcessPercentage,
+                excessUsd: tokenExcessUsd,
+              };
+            }
+          }
+
+          // If a token has higher excess than the overall chain, use that for logging
+          if (highestExcessToken.excessPercentage > excess) {
+            this.logger.debug(
+              `Chain ${chainId} has token-specific excess: ${highestExcessToken.token} is ${highestExcessToken.excessPercentage.toFixed(2)}% above target (${highestExcessToken.excessUsd.toFixed(2)} USD)`
+            );
+          }
+
+          // Get available tokens on this chain that can be used for rebalancing
+          const availableTokens = Object.entries(chainConfig.tokens)
+            .filter(([token, config]) => {
+              // Check if token is enabled for rebalancing
+              if (!config.enabled) {
+                return false;
+              }
+
+              // Check if token has sufficient balance on source chain
+              const tokenBalance = this.tokenUtils.getTokenBalance(
+                token,
+                chainId,
+                balances
+              );
+              const tokenBalanceUsd = this.tokenUtils.getTokenBalanceUsd(
+                token,
+                chainId,
+                balances
+              );
+
+              return (
+                tokenBalance &&
+                tokenBalanceUsd &&
+                tokenBalanceUsd > this.config.global.minRebalanceUsdValue
+              );
+            })
+            .map(([token, config]) => {
+              // Calculate token-specific excess if applicable
+              const tokenCurrentPercentage =
+                tokenPercentagesByChain[token]?.[chainId] || 0;
+              const tokenTargetPercentage =
+                config.targetPercentage || chainConfig.targetPercentage;
+              const tokenExcessPercentage =
+                tokenCurrentPercentage > tokenTargetPercentage
+                  ? tokenCurrentPercentage - tokenTargetPercentage
+                  : 0;
+
+              return {
+                token,
+                balanceUsd:
+                  this.tokenUtils.getTokenBalanceUsd(
+                    token,
+                    chainId,
+                    balances
+                  ) || 0,
+                rawBalance:
+                  this.tokenUtils.getTokenBalance(token, chainId, balances) ||
+                  "0",
+                priority: config.priority || chainConfig.sourcePriority,
+                excessPercentage: tokenExcessPercentage,
+              };
+            })
+            .filter((token) => token.balanceUsd > 0);
+
+          // Only add chains with actual excess (greater than 0) to the chainsWithExcess array
+          if (availableTokens.length > 0) {
+            chainsWithExcess.push({
+              chainId,
+              currentPercentage,
+              targetPercentage,
+              excess,
+              excessUsd,
+              sourcePriority: chainConfig.sourcePriority,
+              availableTokens,
+            });
+          }
         }
       }
     }

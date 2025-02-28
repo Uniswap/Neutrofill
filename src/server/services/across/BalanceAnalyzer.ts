@@ -11,6 +11,7 @@ import type { RebalanceService } from "./RebalanceService.js";
 import { BalanceCalculator } from "./BalanceCalculator.js";
 import { RebalanceDecisionMaker } from "./RebalanceDecisionMaker.js";
 import { TokenUtils } from "./TokenUtils.js";
+import { DEFAULT_REBALANCE_CONFIG } from "../../config/rebalance.js";
 
 /**
  * Service for analyzing balances and determining rebalance needs
@@ -104,7 +105,7 @@ export class BalanceAnalyzer {
           })),
           chainsWithExcess: chainsWithExcess.map((chain) => ({
             chainId: chain.chainId,
-            excess: chain.excess,
+            excess: Math.max(0, chain.excess), // Ensure excess is never negative in logs
             sourcePriority: chain.sourcePriority,
             currentPercentage: chain.currentPercentage,
             targetPercentage: chain.targetPercentage,
@@ -134,6 +135,26 @@ export class BalanceAnalyzer {
       for (const destinationChain of chainsNeedingFunds) {
         // Try each source chain in order until we find one that works
         for (const sourceChain of chainsWithExcess) {
+          // Skip if source and destination are the same chain
+          if (sourceChain.chainId === destinationChain.chainId) {
+            this.logger.debug(
+              `Skipping rebalance from chain ${sourceChain.chainId} to itself`
+            );
+            continue;
+          }
+
+          // Double-check that destination chain can be a destination
+          const destChainConfig =
+            DEFAULT_REBALANCE_CONFIG.chains[
+              destinationChain.chainId as keyof typeof DEFAULT_REBALANCE_CONFIG.chains
+            ];
+          if (!destChainConfig || !destChainConfig.canBeDestination) {
+            this.logger.debug(
+              `Skipping rebalance to chain ${destinationChain.chainId} as it cannot be a destination`
+            );
+            continue;
+          }
+
           // Log the selected source and destination chains
           this.logger.info(
             `Trying source chain ${sourceChain.chainId} and destination chain ${destinationChain.chainId} for potential rebalance`,
@@ -237,6 +258,14 @@ export class BalanceAnalyzer {
             }
           );
 
+          // Skip if the amount to rebalance is negative or zero
+          if (tokenAmount <= 0 || amountToRebalanceUsd <= 0) {
+            this.logger.info(
+              `Skipping rebalance from chain ${sourceChain.chainId} to chain ${destinationChain.chainId} due to negative or zero rebalance amount: ${tokenAmount} ${tokenToRebalance}`
+            );
+            continue;
+          }
+
           // Check if the amount is sufficient for Across protocol
           try {
             // Get fee estimate to check minimum limits
@@ -287,7 +316,9 @@ export class BalanceAnalyzer {
                 targetPercentage: destinationChain.targetPercentage,
                 deficit: destinationChain.deficit,
                 canBeDestination:
-                  this.config.chains[destinationChain.chainId].canBeDestination,
+                  DEFAULT_REBALANCE_CONFIG.chains[
+                    destinationChain.chainId as keyof typeof DEFAULT_REBALANCE_CONFIG.chains
+                  ].canBeDestination,
               },
             };
 

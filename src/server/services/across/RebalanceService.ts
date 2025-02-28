@@ -1,7 +1,12 @@
 import type { Address, PublicClient, WalletClient } from "viem";
 import { AcrossService } from "./AcrossService.js";
 import { Logger } from "../../utils/logger.js";
-import { CHAIN_CONFIG, type SupportedChainId } from "../../config/constants.js";
+import {
+  type SupportedChainId,
+  SUPPORTED_CHAINS,
+  CHAIN_CONFIG,
+} from "../../config/constants.js";
+import { DEFAULT_REBALANCE_CONFIG } from "../../config/rebalance.js";
 
 /**
  * Service for rebalancing funds between chains using Across Protocol
@@ -45,50 +50,88 @@ export class RebalanceService {
     amount: number
   ): Promise<string> {
     try {
+      // Prevent rebalancing to and from the same chain
+      if (fromChainId === toChainId) {
+        throw new Error(`Cannot rebalance from chain ${fromChainId} to itself`);
+      }
+
+      // Get destination chain config
+      const destChainConfig =
+        DEFAULT_REBALANCE_CONFIG.chains[
+          toChainId as keyof typeof DEFAULT_REBALANCE_CONFIG.chains
+        ];
+      if (!destChainConfig) {
+        throw new Error(`Unsupported destination chain: ${toChainId}`);
+      }
+
+      // Check if destination chain can be a destination
+      if (!destChainConfig.canBeDestination) {
+        throw new Error(
+          `Chain ${toChainId} cannot be a destination for rebalancing`
+        );
+      }
+
+      // Ensure amount is positive
+      if (amount <= 0) {
+        throw new Error(`Rebalance amount must be positive, got: ${amount}`);
+      }
+
       this.logger.info(
         `Rebalancing ${amount} ${tokenSymbol} from chain ${fromChainId} to chain ${toChainId}`
       );
 
       // Get token config from source chain
-      const sourceChainConfig = CHAIN_CONFIG[fromChainId];
+      const sourceChainConfig =
+        DEFAULT_REBALANCE_CONFIG.chains[
+          fromChainId as keyof typeof DEFAULT_REBALANCE_CONFIG.chains
+        ];
       if (!sourceChainConfig) {
         throw new Error(`Unsupported source chain ID: ${fromChainId}`);
       }
 
-      const tokenConfig = sourceChainConfig.tokens[tokenSymbol];
-      if (!tokenConfig) {
+      // Check if token is supported on source chain
+      const tokenConfig =
+        sourceChainConfig.tokens[
+          tokenSymbol as keyof typeof sourceChainConfig.tokens
+        ];
+      if (!tokenConfig || !tokenConfig.enabled) {
         throw new Error(
-          `Unsupported token ${tokenSymbol} on chain ${fromChainId}`
+          `Token ${tokenSymbol} not enabled on chain ${fromChainId}`
         );
       }
 
+      // Get token address from constants
+      const constantsChainConfig = CHAIN_CONFIG[fromChainId];
+      if (!constantsChainConfig) {
+        throw new Error(`Chain ${fromChainId} not found in CHAIN_CONFIG`);
+      }
+
+      const constantsTokenConfig = constantsChainConfig.tokens[tokenSymbol];
+      if (!constantsTokenConfig) {
+        throw new Error(
+          `Token ${tokenSymbol} not found in CHAIN_CONFIG for chain ${fromChainId}`
+        );
+      }
+
+      // Use the token address from constants
+      let apiTokenAddress = constantsTokenConfig.address;
+
+      // Special handling for ETH: use WETH address for API calls
+      if (tokenSymbol === "ETH") {
+        this.logger.info(
+          `Using WETH address ${constantsChainConfig.tokens.WETH.address} for API call on chain ${fromChainId}`
+        );
+        apiTokenAddress = constantsChainConfig.tokens.WETH.address;
+      }
+
       // Convert amount to raw amount with proper decimal handling
-      // Use Math.round instead of Math.floor to handle potential floating point precision issues
       const rawAmount = BigInt(
-        Math.round(amount * 10 ** tokenConfig.decimals)
+        Math.round(amount * 10 ** constantsTokenConfig.decimals)
       ).toString();
 
       this.logger.debug(
-        `Converting ${amount} ${tokenSymbol} to raw amount ${rawAmount} (${tokenConfig.decimals} decimals)`
+        `Converting ${amount} ${tokenSymbol} to raw amount ${rawAmount} (${constantsTokenConfig.decimals} decimals)`
       );
-
-      // For ETH transfers, we need to use WETH address for the API call
-      // but we'll still use the null address (ETH) for the actual deposit params
-      let apiTokenAddress = tokenConfig.address;
-      const isEthTransfer =
-        tokenConfig.address === "0x0000000000000000000000000000000000000000";
-
-      if (isEthTransfer) {
-        // Get the WETH address from the source chain configuration
-        if (sourceChainConfig.tokens.WETH) {
-          apiTokenAddress = sourceChainConfig.tokens.WETH.address;
-          this.logger.info(
-            `Using WETH address ${apiTokenAddress} for API call on chain ${fromChainId}`
-          );
-        } else {
-          throw new Error(`WETH token not found on chain ${fromChainId}`);
-        }
-      }
 
       // Get suggested fees from Across
       const feeResponse = await this.acrossService.getSuggestedFees({
@@ -98,35 +141,33 @@ export class RebalanceService {
         amount: rawAmount,
       });
 
-      // Check if the amount is within limits
+      // Check if amount is within limits
       if (BigInt(rawAmount) < BigInt(feeResponse.limits.minDeposit)) {
         throw new Error(
           `Amount ${amount} ${tokenSymbol} is below minimum deposit limit of ${
             BigInt(feeResponse.limits.minDeposit) /
-            BigInt(10 ** tokenConfig.decimals)
+            BigInt(10 ** constantsTokenConfig.decimals)
           } ${tokenSymbol}`
         );
       }
-
       if (BigInt(rawAmount) > BigInt(feeResponse.limits.maxDeposit)) {
         throw new Error(
           `Amount ${amount} ${tokenSymbol} exceeds maximum deposit limit of ${
             BigInt(feeResponse.limits.maxDeposit) /
-            BigInt(10 ** tokenConfig.decimals)
+            BigInt(10 ** constantsTokenConfig.decimals)
           } ${tokenSymbol}`
         );
       }
 
-      // Prepare deposit parameters - we use the original token address here
-      // The AcrossService.executeDeposit method will handle the conversion for ETH transfers
+      // Prepare deposit parameters using the AcrossService method
       const depositParams = this.acrossService.prepareDepositParams(
         feeResponse,
         this.accountAddress,
-        tokenConfig.address, // Original token address (ETH or other token)
+        constantsTokenConfig.address,
         BigInt(rawAmount),
         toChainId,
         undefined,
-        "0x0000000000000000000000000000000000000000"
+        "0x0000000000000000000000000000000000000000" as Address
       );
 
       // Execute the deposit
@@ -184,40 +225,80 @@ export class RebalanceService {
     amount: number
   ) {
     try {
+      // Prevent rebalancing to and from the same chain
+      if (fromChainId === toChainId) {
+        throw new Error(`Cannot rebalance from chain ${fromChainId} to itself`);
+      }
+
+      // Get destination chain config
+      const destChainConfig =
+        DEFAULT_REBALANCE_CONFIG.chains[
+          toChainId as keyof typeof DEFAULT_REBALANCE_CONFIG.chains
+        ];
+      if (!destChainConfig) {
+        throw new Error(`Unsupported destination chain: ${toChainId}`);
+      }
+
+      // Check if destination chain can be a destination
+      if (!destChainConfig.canBeDestination) {
+        throw new Error(
+          `Chain ${toChainId} cannot be a destination for rebalancing`
+        );
+      }
+
+      // Ensure amount is positive
+      if (amount <= 0) {
+        throw new Error(`Rebalance amount must be positive, got: ${amount}`);
+      }
+
       // Get token config from source chain
-      const sourceChainConfig = CHAIN_CONFIG[fromChainId];
+      const sourceChainConfig =
+        DEFAULT_REBALANCE_CONFIG.chains[
+          fromChainId as keyof typeof DEFAULT_REBALANCE_CONFIG.chains
+        ];
       if (!sourceChainConfig) {
         throw new Error(`Unsupported source chain ID: ${fromChainId}`);
       }
 
-      const tokenConfig = sourceChainConfig.tokens[tokenSymbol];
-      if (!tokenConfig) {
+      // Check if token is supported on source chain
+      const tokenConfig =
+        sourceChainConfig.tokens[
+          tokenSymbol as keyof typeof sourceChainConfig.tokens
+        ];
+      if (!tokenConfig || !tokenConfig.enabled) {
         throw new Error(
-          `Unsupported token ${tokenSymbol} on chain ${fromChainId}`
+          `Token ${tokenSymbol} not enabled on chain ${fromChainId}`
         );
+      }
+
+      // Get token address from constants
+      const constantsChainConfig = CHAIN_CONFIG[fromChainId];
+      if (!constantsChainConfig) {
+        throw new Error(`Chain ${fromChainId} not found in CHAIN_CONFIG`);
+      }
+
+      const constantsTokenConfig = constantsChainConfig.tokens[tokenSymbol];
+      if (!constantsTokenConfig) {
+        throw new Error(
+          `Token ${tokenSymbol} not found in CHAIN_CONFIG for chain ${fromChainId}`
+        );
+      }
+
+      // Use the token address from constants
+      let apiTokenAddress = constantsTokenConfig.address;
+
+      // Special handling for ETH: use WETH address for API calls
+      if (tokenSymbol === "ETH") {
+        this.logger.info(
+          `Using WETH address ${constantsChainConfig.tokens.WETH.address} for fee estimation on chain ${fromChainId}`
+        );
+        apiTokenAddress = constantsChainConfig.tokens.WETH.address;
       }
 
       // Convert amount to raw amount (e.g., 1 USDC = 1e6)
       const rawAmount = BigInt(
-        Math.floor(amount * 10 ** tokenConfig.decimals)
+        Math.floor(amount * 10 ** constantsTokenConfig.decimals)
       ).toString();
-
-      // For ETH transfers, we need to use WETH address for the API call
-      let apiTokenAddress = tokenConfig.address;
-      const isEthTransfer =
-        tokenConfig.address === "0x0000000000000000000000000000000000000000";
-
-      if (isEthTransfer) {
-        // Get the WETH address from the source chain configuration
-        if (sourceChainConfig.tokens.WETH) {
-          apiTokenAddress = sourceChainConfig.tokens.WETH.address;
-          this.logger.info(
-            `Using WETH address ${apiTokenAddress} for fee estimation on chain ${fromChainId}`
-          );
-        } else {
-          throw new Error(`WETH token not found on chain ${fromChainId}`);
-        }
-      }
 
       // Get suggested fees from Across
       const feeResponse = await this.acrossService.getSuggestedFees({
@@ -229,7 +310,8 @@ export class RebalanceService {
 
       // Convert raw fee to native token units
       const totalFee =
-        Number(feeResponse.totalRelayFee.total) / 10 ** tokenConfig.decimals;
+        Number(feeResponse.totalRelayFee.total) /
+        10 ** constantsTokenConfig.decimals;
 
       return {
         fee: totalFee,
@@ -237,15 +319,15 @@ export class RebalanceService {
         estimatedFillTime: feeResponse.estimatedFillTimeSec,
         maxDepositInstant: Number(
           BigInt(feeResponse.limits.maxDepositInstant) /
-            BigInt(10 ** tokenConfig.decimals)
+            BigInt(10 ** constantsTokenConfig.decimals)
         ),
         maxDepositShortDelay: Number(
           BigInt(feeResponse.limits.maxDepositShortDelay) /
-            BigInt(10 ** tokenConfig.decimals)
+            BigInt(10 ** constantsTokenConfig.decimals)
         ),
         maxDeposit: Number(
           BigInt(feeResponse.limits.maxDeposit) /
-            BigInt(10 ** tokenConfig.decimals)
+            BigInt(10 ** constantsTokenConfig.decimals)
         ),
       };
     } catch (error) {
