@@ -1,4 +1,6 @@
 import { Logger } from "../../utils/logger.js";
+import type { WalletClient } from "viem";
+import { signTypedData } from "viem/actions";
 
 // Types based on the Uniswap API swagger
 export interface RequestId {
@@ -118,8 +120,10 @@ export class UniswapService {
   private readonly UNICHAIN_ID = 130;
   private readonly headers: Record<string, string>;
   private logger: Logger;
+  private readonly walletClient?: WalletClient;
 
-  constructor() {
+  constructor(walletClient?: WalletClient) {
+    this.walletClient = walletClient;
     const apiKey = process.env.UNISWAP_API_KEY;
     if (!apiKey) {
       throw new Error("UNISWAP_API_KEY environment variable is required");
@@ -334,13 +338,103 @@ export class UniswapService {
         }
       }
 
-      // 3. Create swap transaction
-      const swapRequest: SwapRequest = {
+      // 3. Create swap transaction with permit data if available
+      let swapRequest: SwapRequest = {
         quote: quoteResponse.quote,
         simulateTransaction: true,
         refreshGasPrice: true,
-        permitData: quoteResponse.permitData,
       };
+
+      // If we have permitData and a wallet client, sign the permit
+      if (quoteResponse.permitData && this.walletClient) {
+        try {
+          this.logger.info("Signing permit data for token approval");
+
+          // Get the account from the wallet client
+          const account = this.walletClient.account;
+          if (!account) {
+            throw new Error("No account found in wallet client");
+          }
+
+          // Ensure the permit data has the required properties
+          if (
+            !quoteResponse.permitData.domain ||
+            !quoteResponse.permitData.types ||
+            !quoteResponse.permitData.values
+          ) {
+            throw new Error("Permit data is missing required properties");
+          }
+
+          // Convert the permit data to the format expected by signTypedData
+          const domain = quoteResponse.permitData.domain as Record<
+            string,
+            unknown
+          >;
+          const types = quoteResponse.permitData.types as Record<
+            string,
+            unknown
+          >;
+          const values = quoteResponse.permitData.values as Record<
+            string,
+            unknown
+          >;
+
+          // Get the primary type (usually "Permit2" or similar)
+          const primaryType = Object.keys(types).find(
+            (key) => key !== "EIP712Domain"
+          );
+          if (!primaryType) {
+            throw new Error(
+              "Could not determine primary type from permit data"
+            );
+          }
+
+          // Sign the typed data
+          const signature = await signTypedData(this.walletClient, {
+            account,
+            domain,
+            types,
+            primaryType,
+            message: values,
+          });
+
+          this.logger.info("Successfully signed permit data");
+
+          // Include the permit data and signature in the swap request
+          swapRequest = {
+            ...swapRequest,
+            permitData: quoteResponse.permitData,
+            signature,
+          };
+        } catch (error) {
+          this.logger.error("Error signing permit data:", error);
+          // Fall back to traditional approval flow
+          this.logger.info("Falling back to traditional approval flow");
+
+          // Check for approval explicitly
+          const approvalRequest: ApprovalRequest = {
+            walletAddress: swapper,
+            token: tokenIn,
+            amount,
+            chainId: this.UNICHAIN_ID,
+          };
+
+          const approvalResponse = await this.checkApproval(approvalRequest);
+
+          if (approvalResponse.approval) {
+            this.logger.info("Token approval required before swap", {
+              token: tokenIn,
+              approvalTx: approvalResponse.approval,
+            });
+
+            return {
+              requiresApproval: true,
+              approvalTransaction: approvalResponse.approval,
+              quoteResponse,
+            };
+          }
+        }
+      }
 
       const swapResponse = await this.createSwap(swapRequest);
 

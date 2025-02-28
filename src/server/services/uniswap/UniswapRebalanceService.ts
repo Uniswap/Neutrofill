@@ -23,7 +23,7 @@ export class UniswapRebalanceService {
     this.publicClient = publicClients[this.UNICHAIN_ID];
     this.walletClient = walletClients[this.UNICHAIN_ID];
     this.accountAddress = accountAddress;
-    this.uniswapService = new UniswapService();
+    this.uniswapService = new UniswapService(this.walletClient);
 
     if (!this.publicClient || !this.walletClient) {
       throw new Error(

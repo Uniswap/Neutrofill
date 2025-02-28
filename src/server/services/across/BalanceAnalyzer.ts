@@ -91,7 +91,7 @@ export class BalanceAnalyzer {
         );
 
       // Log detailed information about chains needing funds and chains with excess
-      this.logger.info(
+      this.logger.debug(
         `Potential rebalance analysis: ${chainsNeedingFunds.length} chains need funds, ${chainsWithExcess.length} chains have excess`,
         {
           chainsNeedingFunds: chainsNeedingFunds.map((chain) => ({
