@@ -218,15 +218,18 @@ export class RebalanceService {
         fee: totalFee,
         feeToken: tokenSymbol,
         estimatedFillTime: feeResponse.estimatedFillTimeSec,
-        maxDepositInstant:
+        maxDepositInstant: Number(
           BigInt(feeResponse.limits.maxDepositInstant) /
-          BigInt(10 ** tokenConfig.decimals),
-        maxDepositShortDelay:
+            BigInt(10 ** tokenConfig.decimals)
+        ),
+        maxDepositShortDelay: Number(
           BigInt(feeResponse.limits.maxDepositShortDelay) /
-          BigInt(10 ** tokenConfig.decimals),
-        maxDeposit:
+            BigInt(10 ** tokenConfig.decimals)
+        ),
+        maxDeposit: Number(
           BigInt(feeResponse.limits.maxDeposit) /
-          BigInt(10 ** tokenConfig.decimals),
+            BigInt(10 ** tokenConfig.decimals)
+        ),
       };
     } catch (error) {
       this.logger.error("Error getting rebalance fee estimate:", error);
