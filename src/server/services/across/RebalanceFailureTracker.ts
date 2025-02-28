@@ -49,11 +49,13 @@ export class RebalanceFailureTracker {
         attempt.destinationChainId === destinationChainId &&
         attempt.token === token &&
         Date.now() - attempt.timestamp < this.FAILED_ATTEMPT_EXPIRY &&
-        attempt.reason.includes("AMOUNT_TOO_LOW") // Only track AMOUNT_TOO_LOW errors
+        (attempt.reason.includes("AMOUNT_TOO_LOW") || // Track AMOUNT_TOO_LOW errors
+          attempt.reason.includes("UNSUPPORTED_TOKEN") || // Also track UNSUPPORTED_TOKEN errors
+          attempt.reason.includes("Unsupported token")) // Handle both error message formats
     );
 
     if (recentFailedAttempts.length === 0) {
-      return false; // No recent failures with AMOUNT_TOO_LOW
+      return false; // No recent failures with tracked error types
     }
 
     // Get the most recent failed attempt
@@ -125,7 +127,7 @@ export class RebalanceFailureTracker {
 
       // If we get here, balances haven't changed enough to warrant retrying
       this.logger.debug(
-        `Skipping rebalance due to recent AMOUNT_TOO_LOW error (${new Date(lastFailedAttempt.timestamp).toISOString()}) and no significant balance change`
+        `Skipping rebalance due to recent error (${new Date(lastFailedAttempt.timestamp).toISOString()}) and no significant balance change`
       );
       return true;
     } catch (error) {
@@ -145,11 +147,16 @@ export class RebalanceFailureTracker {
     reason: string,
     balances: AggregateBalance
   ): void {
-    // Only track AMOUNT_TOO_LOW errors
-    if (!reason.includes("AMOUNT_TOO_LOW")) {
+    // Only track AMOUNT_TOO_LOW and UNSUPPORTED_TOKEN errors
+    if (
+      !reason.includes("AMOUNT_TOO_LOW") &&
+      !reason.includes("UNSUPPORTED_TOKEN") &&
+      !reason.includes("Unsupported token")
+    ) {
       return;
     }
 
+    // Get token balances for tracking
     const sourceTokenBalance = this.tokenUtils.getTokenBalance(
       token,
       sourceChainId,
@@ -161,6 +168,25 @@ export class RebalanceFailureTracker {
       balances
     );
 
+    // Log the failure with appropriate message based on the error type
+    if (reason.includes("AMOUNT_TOO_LOW")) {
+      this.logger.info(
+        `Tracking failed rebalance attempt for ${amount} ${token} from chain ${sourceChainId} to chain ${destinationChainId} due to AMOUNT_TOO_LOW error`
+      );
+    } else if (
+      reason.includes("UNSUPPORTED_TOKEN") ||
+      reason.includes("Unsupported token")
+    ) {
+      this.logger.info(
+        `Tracking failed rebalance attempt for ${token} from chain ${sourceChainId} to chain ${destinationChainId} due to UNSUPPORTED_TOKEN error`
+      );
+    } else {
+      this.logger.info(
+        `Tracking failed rebalance attempt for ${amount} ${token} from chain ${sourceChainId} to chain ${destinationChainId}: ${reason}`
+      );
+    }
+
+    // Add to the failed attempts list
     const failedAttempt: FailedRebalanceAttempt = {
       sourceChainId,
       destinationChainId,

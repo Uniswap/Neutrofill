@@ -202,11 +202,28 @@ export class RebalanceService {
         Math.floor(amount * 10 ** tokenConfig.decimals)
       ).toString();
 
+      // For ETH transfers, we need to use WETH address for the API call
+      let apiTokenAddress = tokenConfig.address;
+      const isEthTransfer =
+        tokenConfig.address === "0x0000000000000000000000000000000000000000";
+
+      if (isEthTransfer) {
+        // Get the WETH address from the source chain configuration
+        if (sourceChainConfig.tokens.WETH) {
+          apiTokenAddress = sourceChainConfig.tokens.WETH.address;
+          this.logger.info(
+            `Using WETH address ${apiTokenAddress} for fee estimation on chain ${fromChainId}`
+          );
+        } else {
+          throw new Error(`WETH token not found on chain ${fromChainId}`);
+        }
+      }
+
       // Get suggested fees from Across
       const feeResponse = await this.acrossService.getSuggestedFees({
         originChainId: fromChainId,
         destinationChainId: toChainId,
-        token: tokenConfig.address,
+        token: apiTokenAddress,
         amount: rawAmount,
       });
 
