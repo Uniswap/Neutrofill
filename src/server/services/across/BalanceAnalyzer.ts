@@ -355,7 +355,7 @@ export class BalanceAnalyzer {
       }
 
       // If we get here, we tried all combinations and none worked
-      this.logger.info(
+      this.logger.debug(
         "No viable rebalance operations found after trying all combinations"
       );
       return;

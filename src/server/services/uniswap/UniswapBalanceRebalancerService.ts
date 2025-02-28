@@ -27,7 +27,7 @@ export class UniswapBalanceRebalancerService extends EventEmitter {
   private readonly tokenBalanceService: TokenBalanceService;
   private readonly accountAddress: Address;
   private readonly UNICHAIN_ID = 130;
-  private readonly MIN_ETH_BALANCE = 0.01; // Minimum ETH to keep on Unichain
+  private readonly MIN_ETH_BALANCE = 0.001; // Minimum ETH to keep on Unichain
   private readonly tokenTargets: UniswapTokenRebalanceTarget[];
   private isRebalancing = false;
   private lastRebalanceTime = 0;
@@ -294,36 +294,36 @@ export class UniswapBalanceRebalancerService extends EventEmitter {
       // Calculate the amount to swap in token units
       let amountToSwap = usdToMove / excessTokenPrice;
 
-      // Ensure we don't swap more than available on Unichain
-      const unichainTokenBalance =
+      // Get the available balance on Unichain, accounting for minimum ETH balance if needed
+      const rawUnichainBalance =
         Number(unichainBalances[fromToken as keyof typeof unichainBalances]) /
         (fromToken === "USDC" ? 1e6 : 1e18);
 
-      if (amountToSwap > unichainTokenBalance) {
-        this.logger.info(
-          `Limiting swap amount to available balance on Unichain: ${unichainTokenBalance} ${fromToken}`
+      // If swapping from ETH, reserve the minimum balance
+      let availableUnichainBalance = rawUnichainBalance;
+      if (fromToken === "ETH") {
+        availableUnichainBalance = Math.max(
+          0,
+          rawUnichainBalance - this.MIN_ETH_BALANCE
         );
-        amountToSwap = unichainTokenBalance;
-      }
-
-      // If swapping from ETH, ensure we leave the minimum balance
-      if (
-        fromToken === "ETH" &&
-        unichainTokenBalance - amountToSwap < this.MIN_ETH_BALANCE
-      ) {
-        const newAmount = unichainTokenBalance - this.MIN_ETH_BALANCE;
-        if (newAmount <= 0) {
+        if (availableUnichainBalance <= 0) {
           this.logger.info(
-            `Cannot swap ETH - would leave less than minimum balance of ${this.MIN_ETH_BALANCE} ETH`
+            `ETH balance (${rawUnichainBalance}) is below or equal to minimum required (${this.MIN_ETH_BALANCE}), cannot swap`
           );
           this.isRebalancing = false;
           return;
         }
-
         this.logger.info(
-          `Limiting ETH swap to ${newAmount} to maintain minimum balance of ${this.MIN_ETH_BALANCE} ETH`
+          `Available ETH for swap: ${availableUnichainBalance} (total: ${rawUnichainBalance}, reserving: ${this.MIN_ETH_BALANCE})`
         );
-        amountToSwap = newAmount;
+      }
+
+      // Ensure we don't swap more than available (accounting for minimum ETH balance)
+      if (amountToSwap > availableUnichainBalance) {
+        this.logger.info(
+          `Limiting swap amount to available balance on Unichain: ${availableUnichainBalance} ${fromToken}`
+        );
+        amountToSwap = availableUnichainBalance;
       }
 
       // Calculate USD value of the swap
