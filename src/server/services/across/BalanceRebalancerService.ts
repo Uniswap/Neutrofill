@@ -75,11 +75,18 @@ export class BalanceRebalancerService extends EventEmitter {
     this.logger.info("Starting BalanceRebalancerService");
     this.running = true;
 
+    // Cancel any stale operations first
+    this.cancelStaleOperations();
+
     // Process any pending operations immediately
     void this.processOperations();
 
     // Then process every 30 seconds
     this.updateInterval = setInterval(() => {
+      // Check for and cancel stale operations
+      this.cancelStaleOperations();
+
+      // Process pending operations
       void this.processOperations();
     }, this.UPDATE_INTERVAL);
 
@@ -165,6 +172,16 @@ export class BalanceRebalancerService extends EventEmitter {
       }
 
       try {
+        // Check if the operation is still valid (e.g., chain configs might have changed)
+        if (!this.isOperationValid(operation)) {
+          this.operationStore.cancelOperation(
+            operation.id,
+            "Operation is no longer valid due to configuration changes"
+          );
+          this.operationStore.releaseProcessingLock();
+          return;
+        }
+
         // Update operation status
         this.operationStore.updateOperation(operation.id, {
           status: "Processing",
@@ -251,6 +268,62 @@ export class BalanceRebalancerService extends EventEmitter {
     } catch (error) {
       this.logger.error("Error processing rebalance operations:", error);
       this.operationStore.releaseProcessingLock();
+    }
+  }
+
+  /**
+   * Check if an operation is still valid
+   */
+  private isOperationValid(operation: RebalanceOperation): boolean {
+    // Check if source chain is still configured
+    const sourceChainConfig = this.config.chains[operation.sourceChainId];
+    if (!sourceChainConfig) {
+      this.logger.info(
+        `Operation ${operation.id} is invalid: source chain ${operation.sourceChainId} is no longer configured`
+      );
+      return false;
+    }
+
+    // Check if destination chain is still enabled for rebalancing
+    const destChainConfig = this.config.chains[operation.destinationChainId];
+    if (!destChainConfig || !destChainConfig.canBeDestination) {
+      this.logger.info(
+        `Operation ${operation.id} is invalid: destination chain ${operation.destinationChainId} is no longer a valid destination`
+      );
+      return false;
+    }
+
+    // Check if the operation is too old
+    const maxOperationAge = 24 * 60 * 60 * 1000; // 24 hours
+    if (Date.now() - operation.createdAt > maxOperationAge) {
+      this.logger.info(
+        `Operation ${operation.id} is invalid: operation is too old (created at ${new Date(operation.createdAt).toISOString()})`
+      );
+      return false;
+    }
+
+    return true;
+  }
+
+  /**
+   * Cancel stale operations
+   */
+  public cancelStaleOperations(): void {
+    const staleOperations = this.operationStore.getStaleOperations();
+
+    if (staleOperations.length === 0) {
+      return;
+    }
+
+    this.logger.info(
+      `Found ${staleOperations.length} stale operations to cancel`
+    );
+
+    for (const operation of staleOperations) {
+      this.operationStore.cancelOperation(
+        operation.id,
+        "Operation is stale and has been cancelled"
+      );
     }
   }
 }

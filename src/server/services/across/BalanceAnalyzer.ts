@@ -122,6 +122,20 @@ export class BalanceAnalyzer {
       const { tokenToRebalance, tokenInfo } =
         this.decisionMaker.selectTokenToRebalance(sourceChain, specificToken);
 
+      // Check if there's a similar pending operation
+      if (
+        this.operationStore.hasSimilarPendingOperation(
+          sourceChain.chainId,
+          destinationChain.chainId,
+          tokenToRebalance
+        )
+      ) {
+        this.logger.info(
+          `Skipping rebalance from chain ${sourceChain.chainId} to chain ${destinationChain.chainId} for token ${tokenToRebalance} due to similar pending operation`
+        );
+        return;
+      }
+
       // Check if there's a recent failed attempt for this rebalance
       if (
         this.failureTracker.hasRecentFailedAttempt(
