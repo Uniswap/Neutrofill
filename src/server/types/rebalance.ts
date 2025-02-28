@@ -91,6 +91,19 @@ export interface TokenRebalanceConfig {
    * Used to determine which token to rebalance first if multiple are below threshold
    */
   priority: number;
+
+  /**
+   * Target percentage of this token to maintain on each chain
+   * If not specified, the chain's overall targetPercentage will be used
+   */
+  targetPercentage?: number;
+
+  /**
+   * Trigger threshold percentage for this specific token
+   * If the actual percentage falls below this value, a rebalance will be triggered
+   * If not specified, the chain's overall triggerThreshold will be used
+   */
+  triggerThreshold?: number;
 }
 
 /**
