@@ -5,3 +5,5 @@ export { BalanceRebalancerService } from "./BalanceRebalancerService.js";
 export { TokenUtils } from "./TokenUtils.js";
 export { RebalanceFailureTracker } from "./RebalanceFailureTracker.js";
 export { BalanceAnalyzer } from "./BalanceAnalyzer.js";
+export { BalanceCalculator } from "./BalanceCalculator.js";
+export { RebalanceDecisionMaker } from "./RebalanceDecisionMaker.js";
