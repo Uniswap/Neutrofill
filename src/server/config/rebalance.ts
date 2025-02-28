@@ -72,19 +72,19 @@ export const DEFAULT_REBALANCE_CONFIG: RebalanceConfig = {
           enabled: true,
           priority: 2,
           targetPercentage: 50, // 50% of all ETH on Unichain
-          triggerThreshold: 20, // Trigger ETH rebalance if below 20%
+          triggerThreshold: 30, // Trigger ETH rebalance if below 30%
         },
         WETH: {
           enabled: true,
           priority: 1,
           targetPercentage: 50, // 50% of all WETH on Unichain
-          triggerThreshold: 20, // Trigger WETH rebalance if below 20%
+          triggerThreshold: 30, // Trigger WETH rebalance if below 30%
         },
         USDC: {
           enabled: true,
           priority: 3, // Highest priority - prefer USDC for rebalancing
           targetPercentage: 50, // 50% of all USDC on Unichain
-          triggerThreshold: 20, // Trigger USDC rebalance if below 20%
+          triggerThreshold: 30, // Trigger USDC rebalance if below 30%
         },
       },
     },

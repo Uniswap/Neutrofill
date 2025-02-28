@@ -107,12 +107,20 @@ export class RebalanceDecisionMaker {
   } {
     // Calculate the amount to rebalance, considering the actual token balance
     const maxTokenUsd = tokenInfo.balanceUsd;
-    const amountToRebalanceUsd = Math.min(
+    let amountToRebalanceUsd = Math.min(
       Math.abs(destinationChain.deficitUsd),
       Math.abs(sourceChain.excessUsd),
       maxTokenUsd,
       this.maxRebalanceUsdValue
     );
+
+    // Check if the amount to rebalance is less than the minimum threshold
+    if (amountToRebalanceUsd < this.minRebalanceUsdValue) {
+      this.logger.debug(
+        `Calculated rebalance amount ${amountToRebalanceUsd} USD is less than minimum threshold ${this.minRebalanceUsdValue} USD, skipping rebalance`
+      );
+      amountToRebalanceUsd = 0; // Set to zero to indicate no rebalance should occur
+    }
 
     // Convert USD amount to token amount
     const tokenPrice = this.tokenUtils.getTokenPrice(
