@@ -14,6 +14,7 @@ import type {
   AcrossDepositStatusResponse,
 } from "../../types/across.js";
 import { Logger } from "../../utils/logger.js";
+import { CHAIN_CONFIG, type SupportedChainId } from "../../config/constants.js";
 
 /**
  * Service for interacting with the Across Protocol for cross-chain bridging
@@ -144,31 +145,52 @@ export class AcrossService {
       // Get the SpokePool contract address for the origin chain
       const spokePoolAddress = await this.getSpokePoolAddress(originChainId);
 
+      // Check if this is an ETH transfer (using null address)
+      const isEthTransfer =
+        depositParams.inputToken ===
+        "0x0000000000000000000000000000000000000000";
+
+      // For ETH transfers, we need to use the WETH address in the deposit params
+      // but still send ETH value in the transaction
+      const adjustedDepositParams = { ...depositParams };
+      if (isEthTransfer) {
+        // Get the WETH address from the chain configuration
+        const chainConfig = CHAIN_CONFIG[originChainId as SupportedChainId];
+        if (chainConfig?.tokens.WETH) {
+          adjustedDepositParams.inputToken = chainConfig.tokens.WETH.address;
+          this.logger.info(
+            `Using WETH address ${adjustedDepositParams.inputToken} for ETH transfer on chain ${originChainId}`
+          );
+        } else {
+          throw new Error(`WETH address not found for chain ${originChainId}`);
+        }
+      }
+
       // Log the deposit parameters for debugging
       this.logger.info("Executing deposit with parameters:", {
         originChainId,
         spokePoolAddress,
-        inputToken: depositParams.inputToken,
-        inputAmount: depositParams.inputAmount,
-        destinationChainId: depositParams.destinationChainId,
-        recipient: depositParams.recipient,
+        inputToken: adjustedDepositParams.inputToken,
+        inputAmount: adjustedDepositParams.inputAmount,
+        destinationChainId: adjustedDepositParams.destinationChainId,
+        recipient: adjustedDepositParams.recipient,
+        isEthTransfer,
       });
 
-      // Check if token approval is needed
-      if (
-        depositParams.inputToken !==
-        "0x0000000000000000000000000000000000000000"
-      ) {
+      // Check if token approval is needed (not needed for ETH)
+      if (!isEthTransfer) {
         await this.checkAndApproveToken(
           originChainId,
-          depositParams.inputToken,
+          adjustedDepositParams.inputToken,
           spokePoolAddress,
-          BigInt(depositParams.inputAmount)
+          BigInt(adjustedDepositParams.inputAmount)
         );
       }
 
       // Encode function call with the unique identifier appended
-      const callData = await this.encodeDepositV3WithIdentifier(depositParams);
+      const callData = await this.encodeDepositV3WithIdentifier(
+        adjustedDepositParams
+      );
 
       // Get the account address
       const account = walletClient.account;
@@ -186,11 +208,7 @@ export class AcrossService {
         chain,
         to: spokePoolAddress,
         data: callData,
-        value:
-          depositParams.inputToken ===
-          "0x0000000000000000000000000000000000000000"
-            ? BigInt(depositParams.inputAmount)
-            : 0n,
+        value: isEthTransfer ? BigInt(adjustedDepositParams.inputAmount) : 0n,
       });
 
       this.logger.info(`Deposit transaction sent: ${hash}`);

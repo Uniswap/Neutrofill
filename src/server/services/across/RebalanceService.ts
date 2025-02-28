@@ -72,11 +72,29 @@ export class RebalanceService {
         `Converting ${amount} ${tokenSymbol} to raw amount ${rawAmount} (${tokenConfig.decimals} decimals)`
       );
 
+      // For ETH transfers, we need to use WETH address for the API call
+      // but we'll still use the null address (ETH) for the actual deposit params
+      let apiTokenAddress = tokenConfig.address;
+      const isEthTransfer =
+        tokenConfig.address === "0x0000000000000000000000000000000000000000";
+
+      if (isEthTransfer) {
+        // Get the WETH address from the source chain configuration
+        if (sourceChainConfig.tokens.WETH) {
+          apiTokenAddress = sourceChainConfig.tokens.WETH.address;
+          this.logger.info(
+            `Using WETH address ${apiTokenAddress} for API call on chain ${fromChainId}`
+          );
+        } else {
+          throw new Error(`WETH token not found on chain ${fromChainId}`);
+        }
+      }
+
       // Get suggested fees from Across
       const feeResponse = await this.acrossService.getSuggestedFees({
         originChainId: fromChainId,
         destinationChainId: toChainId,
-        token: tokenConfig.address,
+        token: apiTokenAddress,
         amount: rawAmount,
       });
 
@@ -99,11 +117,12 @@ export class RebalanceService {
         );
       }
 
-      // Prepare deposit parameters
+      // Prepare deposit parameters - we use the original token address here
+      // The AcrossService.executeDeposit method will handle the conversion for ETH transfers
       const depositParams = this.acrossService.prepareDepositParams(
         feeResponse,
         this.accountAddress,
-        tokenConfig.address,
+        tokenConfig.address, // Original token address (ETH or other token)
         BigInt(rawAmount),
         toChainId,
         undefined,
