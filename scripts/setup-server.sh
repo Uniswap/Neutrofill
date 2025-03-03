@@ -10,6 +10,7 @@ fi
 DOMAIN=$1
 IP=$2
 PROJECT_DIR="/opt/neutrofill"
+EMAIL="your-email@your-email-provider.com"
 
 # Update system and install dependencies
 echo "Updating system and installing dependencies..."
@@ -122,7 +123,7 @@ read
 
 # Set up SSL with Let's Encrypt
 echo "Setting up SSL certificate..."
-sudo certbot --nginx -d $DOMAIN --non-interactive --agree-tos --email 0age@protonmail.com
+sudo certbot --nginx -d $DOMAIN --non-interactive --agree-tos --email $EMAIL
 
 # Start services
 echo "Starting services..."
