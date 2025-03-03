@@ -312,6 +312,78 @@ Message Types:
 - Husky for Git hooks
 - lint-staged for pre-commit checks
 
+## Deployment
+
+The project includes a setup script for deploying to a cloud server with automatic HTTPS configuration using Let's Encrypt.
+
+### Prerequisites
+
+- A domain name pointing to your server (A record)
+- Ubuntu-based cloud server
+- SSH access to the server
+
+### Deployment Steps
+
+1. SSH into your server:
+```bash
+ssh user@your-server
+```
+
+2. Clone the repository:
+```bash
+git clone https://github.com/Uniswap/neutrofill.git
+cd neutrofill
+```
+
+3. Run the setup script with your domain and IP:
+```bash
+./scripts/setup-server.sh your-domain.com your-server-ip
+```
+
+For example:
+```bash
+./scripts/setup-server.sh neutrofill.com 167.172.1.91
+```
+
+The script will:
+- Install required dependencies (Node.js, nginx, certbot)
+- Set up the project in /opt/neutrofill
+- Configure nginx with WebSocket support
+- Set up SSL certificates with Let's Encrypt
+- Create and enable a systemd service
+- Start the server
+
+### Monitoring
+
+Monitor the server status:
+```bash
+sudo systemctl status neutrofill
+```
+
+View server logs:
+```bash
+sudo journalctl -u neutrofill -f
+```
+
+### Testing Deployed Server
+
+Test WebSocket connection:
+```bash
+wscat -c wss://your-domain.com/ws
+```
+
+Test broadcast endpoint:
+```bash
+curl -X POST https://your-domain.com/broadcast \
+-H "Content-Type: application/json" \
+-d '{ ... your payload ... }'
+```
+
+Test health endpoint:
+```bash
+curl https://your-domain.com/health
+```
+
 ## License
 
 MIT
