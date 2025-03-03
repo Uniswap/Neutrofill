@@ -25,7 +25,8 @@
   "lint-staged": {
     "*.{ts,tsx}": [
       "biome format --write",
-      "biome lint --write"
+      "biome lint --write",
+      "biome check --formatter-enabled=true"
     ]
   },
   "keywords": [
