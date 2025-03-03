@@ -71,12 +71,20 @@ export class RebalanceDecisionMaker {
 
     if (specificToken) {
       // Find this token in the available tokens on the source chain
-      const specificTokenInfo = sourceChain.availableTokens.find(
+      // Find the specific token in available tokens, prioritizing those with excess
+      // but allowing any available token if needed
+      const specificTokenWithExcess = sourceChain.availableTokens.find(
         (t) =>
           t.token === specificToken &&
           t.excessPercentage &&
           t.excessPercentage > 0
       );
+
+      // If we found the token with excess, use it
+      // Otherwise, try to find the token even without excess
+      const specificTokenInfo =
+        specificTokenWithExcess ||
+        sourceChain.availableTokens.find((t) => t.token === specificToken);
 
       if (specificTokenInfo) {
         tokenToRebalance = specificToken;

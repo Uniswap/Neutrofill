@@ -256,9 +256,12 @@ export class BalanceCalculator {
 
         // Check if this specific token is below its threshold on this chain
         // Also consider chains with zero balance of a token as needing funds
+        // We need to be more aggressive about identifying token-specific deficits
         if (
           chainConfig.canBeDestination &&
-          (tokenCurrentPercentage < tokenTriggerThreshold || hasZeroBalance)
+          (tokenCurrentPercentage < tokenTriggerThreshold ||
+            tokenCurrentPercentage < tokenTargetPercentage * 0.5 || // Also trigger if below 50% of target
+            hasZeroBalance)
         ) {
           const tokenDeficit = tokenTargetPercentage - tokenCurrentPercentage;
           const tokenDeficitUsd =
@@ -294,6 +297,7 @@ export class BalanceCalculator {
         chainConfig.sourcePriority > 0 &&
         (currentPercentage > targetPercentage ||
           // Check if any token on this chain is significantly above its target percentage
+          // or if any token has a very high percentage of the total token supply
           Array.from(Object.entries(chainConfig.tokens)).some(
             ([token, config]) => {
               if (!config.enabled) return false;
@@ -303,8 +307,13 @@ export class BalanceCalculator {
               const tokenTargetPercentage =
                 config.targetPercentage || chainConfig.targetPercentage;
 
-              // Consider this chain as having excess if any token is significantly above target
-              return tokenCurrentPercentage > tokenTargetPercentage + 5; // 5% buffer
+              // Consider this chain as having excess if:
+              // 1. The token's current percentage is significantly above its target percentage, OR
+              // 2. The token has a very high percentage of the total token supply (>70%)
+              return (
+                tokenCurrentPercentage > tokenTargetPercentage + 5 || // 5% buffer
+                tokenCurrentPercentage > 70 // Consider extreme imbalance (>70% on one chain) as excess
+              );
             }
           ))
       ) {
@@ -389,10 +398,13 @@ export class BalanceCalculator {
                 tokenPercentagesByChain[token]?.[chainId] || 0;
               const tokenTargetPercentage =
                 config.targetPercentage || chainConfig.targetPercentage;
-              const tokenExcessPercentage =
-                tokenCurrentPercentage > tokenTargetPercentage
-                  ? tokenCurrentPercentage - tokenTargetPercentage
-                  : 0;
+              // Calculate token-specific excess percentage
+              // If the token's current percentage is above its target percentage, use that as excess
+              // This ensures we consider token-specific imbalances even if the overall chain balance is fine
+              const tokenExcessPercentage = Math.max(
+                0,
+                tokenCurrentPercentage - tokenTargetPercentage
+              );
 
               return {
                 token,

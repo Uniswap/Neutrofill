@@ -118,7 +118,7 @@ export const DEFAULT_REBALANCE_CONFIG: RebalanceConfig = {
   },
   global: {
     enabled: true, // Enable rebalancing by default
-    minRebalanceUsdValue: 20, // Minimum USD value to trigger a rebalance
+    minRebalanceUsdValue: 50, // Minimum USD value to trigger a rebalance
     maxRebalanceUsdValue: 5000, // Maximum USD value to rebalance in a single transaction
     cooldownPeriodMs: 30000, // 30 second cooldown between rebalances
   },
