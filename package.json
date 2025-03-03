@@ -16,7 +16,7 @@
     "lint": "biome lint .",
     "lint:fix": "biome lint --write .",
     "format": "biome format --write .",
-    "format:check": "biome format --check .",
+    "format:check": "biome check --formatter-enabled=true .",
     "fix": "npm run format && npm run lint:fix",
     "test": "jest",
     "lint-staged": "lint-staged",
