@@ -1,16 +1,16 @@
 # Neutrofill
 
-Neutrofill is an automated filler bot that processes inbound transaction requests and executes them if deemed profitable. It maintains a server-side wallet and automatically submits transactions that meet profitability criteria.
+Neutrofill is an automated filler bot that processes inbound transaction requests from CompactX and executes them if deemed profitable. It maintains a server-side wallet and automatically submits transactions that meet profitability criteria.
 
 ## Features
 
 - Accepts inbound POST requests for transaction execution
 - Real-time ETH price monitoring across multiple chains via CoinGecko
 - Profitability analysis before transaction submission
-- Support for multiple chains (Ethereum, Optimism, Base)
-- Configurable gas price multiplier for profitability calculations
+- Support for multiple chains (Ethereum, Optimism, Base, Unichain)
 - WebSocket support for real-time transaction status updates
-- Automated cross-chain token rebalancing via Across Protocol
+- Automated cross-chain token rebalancing via bridging using the Across Protocol
+- Automated single-chain token rebalancing via swaps using the Uniswap API
 
 ## Getting Started
 
@@ -89,7 +89,7 @@ npm run start:debug
 
 ## Cross-Chain Token Rebalancing
 
-Neutrofill includes an automated cross-chain token rebalancing mechanism that helps maintain target token percentages across multiple blockchain networks. This feature ensures that your service has sufficient funds on each supported chain to operate efficiently.
+Neutrofill includes an automated cross-chain token rebalancing mechanism that helps maintain target token percentages across multiple blockchain networks. This maintatins sufficient funds on each supported chain to operate efficiently.
 
 ### Rebalancing Features
 
@@ -103,46 +103,23 @@ Neutrofill includes an automated cross-chain token rebalancing mechanism that he
 
 ### How It Works
 
+For cross-chain bridging:
 1. The system monitors token balances across all supported chains
 2. When a chain's balance falls below its configured threshold, a rebalance operation is triggered
 3. The system identifies a source chain with excess funds
 4. Funds are transferred from the source chain to the destination chain using the Across Protocol
 5. The operation is tracked until completion
 
+For single-chain swapping, neutrofill uses the Uniswap API. Note that all swaps are performed on Unichain to allow for best execution with lowg gas costs.
+
 ### Configuration
 
 Rebalancing is configured in `src/server/config/rebalance.ts`. You can customize:
 
-- Target percentage for each chain
+- Target percentage for each chain / token
 - Trigger thresholds for rebalancing
 - Token priorities for rebalancing
 - Global settings like minimum/maximum amounts and cooldown periods
-
-Example configuration:
-
-```typescript
-{
-  chains: {
-    1: {  // Ethereum Mainnet
-      targetPercentage: 40,
-      triggerThreshold: 10,
-      tokens: {
-        ETH: { enabled: true, priority: 2 },
-        USDC: { enabled: true, priority: 3 }
-      }
-    },
-    // Other chains...
-  },
-  global: {
-    enabled: true,
-    minRebalanceUsdValue: 100,
-    maxRebalanceUsdValue: 5000,
-    cooldownPeriodMs: 3600000  // 1 hour
-  }
-}
-```
-
-See the example in `src/server/examples/rebalancer-example.ts` for a complete implementation.
 
 ## Configuration
 
@@ -155,7 +132,8 @@ The following environment variables are required:
 - `RPC_URL_BASE`: Base RPC URL
 - `RPC_URL_UNICHAIN`: Unichain RPC URL
 - `COINGECKO_API_KEY`: CoinGecko API key
-- `GAS_PRICE_MULTIPLIER`: Multiplier for gas price calculations (default: 1.1)
+- `UNISWAP_API_KEY`: Uniswap API key
+- `COMPACT_INDEXER`: Graphql indexing service (e.g. Ponder node) for The Compact
 
 ## Supported Networks
 
@@ -168,21 +146,45 @@ The following environment variables are required:
 
 ### POST /broadcast
 
-Submit a transaction for potential execution.
+Submit a transaction for potential execution. Generally, this will be relayed from a service like [disseminator](https://github.com/Uniswap/disseminator) — reach out to be added as a webhook.
 
-Request body:
-```typescript
-{
-  chainId: string;          // Chain ID where the transaction should be executed
-  compact: {
-    to: string;            // Target contract address
-    amount: string;        // Amount in wei
-    data: string;         // Transaction data
-  };
-  sponsorSignature?: string;    // Optional sponsor signature
-  allocatorSignature?: string;  // Optional allocator signature
-}
-```
+Request body must conform to the `BroadcastRequest` schema which includes:
+- `chainId`: Chain ID where the resource lock resides (numeric string or hex)
+- `compact`: Compact message object
+  - `arbiter`: Ethereum address
+  - `sponsor`: Ethereum address
+  - `nonce`: 32-byte hex string
+  - `expires`: Numeric string or hex
+  - `id`: Numeric string or hex
+  - `amount`: Numeric string or hex
+  - `mandate`: Mandate object
+- `sponsorSignature`: 64-byte hex string, '0x', or null (no signature indicates an onchain registration)
+- `allocatorSignature`: 64-byte hex string
+- `context`: Context object
+  - `dispensation`: Numeric string or hex
+  - `dispensationUSD`: String (can include $ prefix)
+  - `spotOutputAmount`: Numeric string or hex
+  - `quoteOutputAmountDirect`: Numeric string or hex
+  - `quoteOutputAmountNet`: Numeric string or hex
+  - `deltaAmount`: (optional) Numeric string or hex (can be negative)
+  - `slippageBips`: (optional) Number between 0-10000
+  - `witnessTypeString`: String
+  - `witnessHash`: 32-byte hex string
+  - `claimHash`: (optional) 32-byte hex string
+- `claimHash`: (optional) 32-byte hex string
+
+The `mandate` object represents parameters related to the fill chain and contains:
+- `chainId`: Chain ID where the resource lock resides (positive number)
+- `tribunal`: Ethereum address
+- `recipient`: Ethereum address
+- `expires`: Numeric string or hex
+- `token`: Ethereum address
+- `minimumAmount`: Numeric string or hex
+- `baselinePriorityFee`: Numeric string or hex
+- `scalingFactor`: Numeric string or hex
+- `salt`: 32-byte hex string
+
+Be sure that any ECDSA signatures are encoded in their "compact" representation using EIP-2098.
 
 ### GET /health
 
