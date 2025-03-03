@@ -12,6 +12,10 @@ Neutrofill is an automated filler bot that processes inbound transaction request
 - Automated cross-chain token rebalancing via bridging using the Across Protocol
 - Automated single-chain token rebalancing via swaps using the Uniswap API
 
+A hosted version can be accessed at [neutrofill.com](https://neutrofill.com) — note that this service is meant to serve as a reference for demonstration purposes and no guarantees about its uptime or reliability are provided.
+
+This project is mostly meant to serve as a starting point until more mature standards like the Open Intents Framework have fully integrated with The Compact.
+
 ## Getting Started
 
 ### Prerequisites

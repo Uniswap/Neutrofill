@@ -27,6 +27,70 @@ interface EthPrices {
   };
 }
 
+// Define the type expected by WebSocketClient.onAggregateBalances
+interface WebSocketAggregateBalances {
+  chainBalances: Record<
+    number,
+    {
+      ETH: number;
+      WETH: number;
+      USDC: number;
+      total: number;
+      percentageOfTotal: number;
+    }
+  >;
+  tokenBalances: {
+    ETH: number;
+    WETH: number;
+    USDC: number;
+  };
+  totalBalance: number;
+  lastUpdated: number;
+  timestamp: string;
+}
+
+// Define the structure of the data received from the WebSocket
+interface WebSocketData {
+  type: string;
+  chainBalances: Record<
+    string,
+    {
+      tokens: {
+        ETH: string | number;
+        WETH: string | number;
+        USDC: string | number;
+      };
+      usd: {
+        ETH: number;
+        WETH: number;
+        USDC: number;
+        total: number;
+      };
+      percentageOfTotal: number;
+    }
+  >;
+  tokenBalances: {
+    tokens: {
+      ETH: string | number;
+      WETH: string | number;
+      USDC: string | number;
+    };
+    usd: {
+      ETH: number;
+      WETH: number;
+      USDC: number;
+    };
+    percentages: {
+      ETH: number;
+      WETH: number;
+      USDC: number;
+    };
+  };
+  totalBalance: number;
+  lastUpdated: number;
+  timestamp: string;
+}
+
 interface AggregateBalances {
   chainBalances: Record<
     number,
@@ -119,8 +183,82 @@ export function App() {
       }));
     };
 
-    ws.onAggregateBalances = (newAggregateBalances: AggregateBalances) => {
-      setAggregateBalances(newAggregateBalances);
+    ws.onAggregateBalances = (data: unknown) => {
+      try {
+        // Cast to WebSocketData for transformation
+        const rawData = data as WebSocketData;
+
+        if (rawData && rawData.type === "aggregate_balance_update") {
+          // Transform the data to match our AggregateBalances interface
+          const transformedChainBalances: Record<
+            number,
+            {
+              tokens: {
+                ETH: string;
+                WETH: string;
+                USDC: string;
+              };
+              usd: {
+                ETH: number;
+                WETH: number;
+                USDC: number;
+                total: number;
+              };
+              percentageOfTotal: number;
+            }
+          > = {};
+
+          // Transform chain balances
+          for (const [chainId, values] of Object.entries(
+            rawData.chainBalances || {}
+          )) {
+            if (!values) continue;
+
+            transformedChainBalances[Number(chainId)] = {
+              tokens: {
+                ETH: String(values.tokens?.ETH || "0"),
+                WETH: String(values.tokens?.WETH || "0"),
+                USDC: String(values.tokens?.USDC || "0"),
+              },
+              usd: {
+                ETH: Number(values.usd?.ETH || 0),
+                WETH: Number(values.usd?.WETH || 0),
+                USDC: Number(values.usd?.USDC || 0),
+                total: Number(values.usd?.total || 0),
+              },
+              percentageOfTotal: Number(values.percentageOfTotal || 0),
+            };
+          }
+
+          const transformedData: AggregateBalances = {
+            chainBalances: transformedChainBalances,
+            tokenBalances: {
+              tokens: {
+                ETH: String(rawData.tokenBalances?.tokens?.ETH || "0"),
+                WETH: String(rawData.tokenBalances?.tokens?.WETH || "0"),
+                USDC: String(rawData.tokenBalances?.tokens?.USDC || "0"),
+              },
+              usd: {
+                ETH: Number(rawData.tokenBalances?.usd?.ETH || 0),
+                WETH: Number(rawData.tokenBalances?.usd?.WETH || 0),
+                USDC: Number(rawData.tokenBalances?.usd?.USDC || 0),
+              },
+              percentages: {
+                ETH: Number(rawData.tokenBalances?.percentages?.ETH || 0),
+                WETH: Number(rawData.tokenBalances?.percentages?.WETH || 0),
+                USDC: Number(rawData.tokenBalances?.percentages?.USDC || 0),
+              },
+            },
+            totalBalance: Number(rawData.totalBalance || 0),
+            lastUpdated: Number(rawData.lastUpdated || Date.now()),
+            timestamp: String(rawData.timestamp || new Date().toISOString()),
+          };
+
+          setAggregateBalances(transformedData);
+        }
+      } catch (error) {
+        console.error("Error handling aggregate balances:", error);
+      }
     };
 
     ws.onFillRequest = (
@@ -270,18 +408,21 @@ export function App() {
                         <td className="py-3">
                           <span className="font-mono text-gray-200">
                             {formatEthBalance(
-                              aggregateBalances?.tokenBalances.tokens.ETH ?? "0"
+                              aggregateBalances?.tokenBalances?.tokens?.ETH ??
+                                "0"
                             )}
-                            {aggregateBalances?.tokenBalances.percentages.ETH >
-                              0 && (
-                              <span className="text-gray-500 ml-1">
-                                (
-                                {aggregateBalances.tokenBalances.percentages.ETH.toFixed(
-                                  1
-                                )}
-                                %)
-                              </span>
-                            )}
+                            {aggregateBalances?.tokenBalances?.percentages
+                              ?.ETH != null &&
+                              aggregateBalances.tokenBalances.percentages.ETH >
+                                0 && (
+                                <span className="text-gray-500 ml-1">
+                                  (
+                                  {aggregateBalances.tokenBalances.percentages.ETH.toFixed(
+                                    1
+                                  )}
+                                  %)
+                                </span>
+                              )}
                           </span>
                         </td>
                       </tr>
@@ -305,19 +446,21 @@ export function App() {
                         <td className="py-3">
                           <span className="font-mono text-gray-200">
                             {formatEthBalance(
-                              aggregateBalances?.tokenBalances.tokens.WETH ??
+                              aggregateBalances?.tokenBalances?.tokens?.WETH ??
                                 "0"
                             )}
-                            {aggregateBalances?.tokenBalances.percentages.WETH >
-                              0 && (
-                              <span className="text-gray-500 ml-1">
-                                (
-                                {aggregateBalances.tokenBalances.percentages.WETH.toFixed(
-                                  1
-                                )}
-                                %)
-                              </span>
-                            )}
+                            {aggregateBalances?.tokenBalances?.percentages
+                              ?.WETH != null &&
+                              aggregateBalances.tokenBalances.percentages.WETH >
+                                0 && (
+                                <span className="text-gray-500 ml-1">
+                                  (
+                                  {aggregateBalances.tokenBalances.percentages.WETH.toFixed(
+                                    1
+                                  )}
+                                  %)
+                                </span>
+                              )}
                           </span>
                         </td>
                       </tr>
@@ -341,19 +484,21 @@ export function App() {
                         <td className="py-3">
                           <span className="font-mono text-gray-200">
                             {formatUsdcBalance(
-                              aggregateBalances?.tokenBalances.tokens.USDC ??
+                              aggregateBalances?.tokenBalances?.tokens?.USDC ??
                                 "0"
                             )}
-                            {aggregateBalances?.tokenBalances.percentages.USDC >
-                              0 && (
-                              <span className="text-gray-500 ml-1">
-                                (
-                                {aggregateBalances.tokenBalances.percentages.USDC.toFixed(
-                                  1
-                                )}
-                                %)
-                              </span>
-                            )}
+                            {aggregateBalances?.tokenBalances?.percentages
+                              ?.USDC != null &&
+                              aggregateBalances.tokenBalances.percentages.USDC >
+                                0 && (
+                                <span className="text-gray-500 ml-1">
+                                  (
+                                  {aggregateBalances.tokenBalances.percentages.USDC.toFixed(
+                                    1
+                                  )}
+                                  %)
+                                </span>
+                              )}
                           </span>
                         </td>
                       </tr>
@@ -370,15 +515,17 @@ export function App() {
                                   .total ?? 0
                               ).toFixed(2)}
                               {aggregateBalances?.chainBalances[chainId]
-                                ?.percentageOfTotal > 0 && (
-                                <span className="text-gray-500 ml-1">
-                                  (
-                                  {aggregateBalances.chainBalances[
-                                    chainId
-                                  ].percentageOfTotal.toFixed(1)}
-                                  %)
-                                </span>
-                              )}
+                                ?.percentageOfTotal != null &&
+                                aggregateBalances.chainBalances[chainId]
+                                  .percentageOfTotal > 0 && (
+                                  <span className="text-gray-500 ml-1">
+                                    (
+                                    {aggregateBalances.chainBalances[
+                                      chainId
+                                    ].percentageOfTotal.toFixed(1)}
+                                    %)
+                                  </span>
+                                )}
                             </span>
                           </td>
                         ))}
