@@ -101,9 +101,11 @@ export class BalanceCalculator {
       targetPercentage: number;
       deficit: number;
       deficitUsd: number;
+      relativeDeficit: number; // New property: how far below target as a percentage of target
       token?: string;
       tokenCurrentPercentage?: number;
       tokenTargetPercentage?: number;
+      destinationPriority?: number; // New property: optional destination priority
     }>;
     chainsWithExcess: Array<{
       chainId: SupportedChainId;
@@ -128,9 +130,11 @@ export class BalanceCalculator {
       targetPercentage: number;
       deficit: number;
       deficitUsd: number;
+      relativeDeficit: number; // How far below target as a percentage of target
       token?: string; // Optional token that needs rebalancing
       tokenCurrentPercentage?: number; // Current percentage of token on this chain
       tokenTargetPercentage?: number; // Target percentage for this token
+      destinationPriority?: number; // Optional destination priority
     }> = [];
 
     // Find chains that have excess funds
@@ -196,6 +200,9 @@ export class BalanceCalculator {
       ) {
         const deficit = targetPercentage - currentPercentage;
         const deficitUsd = (deficit / 100) * balances.totalBalance;
+        // Calculate relative deficit (how far below target as a percentage of target)
+        const relativeDeficit =
+          targetPercentage > 0 ? (deficit / targetPercentage) * 100 : 0;
 
         chainsNeedingFunds.push({
           chainId,
@@ -203,6 +210,8 @@ export class BalanceCalculator {
           targetPercentage,
           deficit,
           deficitUsd,
+          relativeDeficit,
+          destinationPriority: chainConfig.destinationPriority,
         });
       }
 
@@ -258,6 +267,12 @@ export class BalanceCalculator {
               tokenSymbol as keyof typeof balances.tokenBalances.usd
             ];
 
+          // Calculate relative deficit for token (how far below target as a percentage of target)
+          const tokenRelativeDeficit =
+            tokenTargetPercentage > 0
+              ? (tokenDeficit / tokenTargetPercentage) * 100
+              : 0;
+
           // Add this chain to the list of chains needing funds, specifically for this token
           chainsNeedingFunds.push({
             chainId,
@@ -265,9 +280,11 @@ export class BalanceCalculator {
             targetPercentage, // Overall chain target
             deficit: tokenDeficit, // Token-specific deficit
             deficitUsd: tokenDeficitUsd, // Token-specific deficit in USD
+            relativeDeficit: tokenRelativeDeficit, // Token-specific relative deficit
             token: tokenSymbol, // Specify which token needs rebalancing
             tokenCurrentPercentage,
             tokenTargetPercentage,
+            destinationPriority: chainConfig.destinationPriority,
           });
         }
       }

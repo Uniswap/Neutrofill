@@ -68,6 +68,14 @@ export interface ChainRebalanceConfig {
   canBeDestination: boolean;
 
   /**
+   * Priority for selecting this chain as a destination for rebalancing
+   * Lower number = higher priority (1 is highest priority)
+   * Used to prefer certain chains as destinations for bridging
+   * If not specified, chains will be prioritized by relative deficit
+   */
+  destinationPriority?: number;
+
+  /**
    * Token-specific rebalance settings
    */
   tokens: {

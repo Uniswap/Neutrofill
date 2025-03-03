@@ -118,8 +118,25 @@ export class BalanceAnalyzer {
         return;
       }
 
-      // Sort chains needing funds by deficit (largest deficit first)
-      chainsNeedingFunds.sort((a, b) => b.deficit - a.deficit);
+      // Sort chains needing funds by destination priority first (if specified), then by relative deficit
+      chainsNeedingFunds.sort((a, b) => {
+        // First sort by destination priority if available (lower number = higher priority)
+        if (
+          a.destinationPriority !== undefined &&
+          b.destinationPriority !== undefined
+        ) {
+          if (a.destinationPriority !== b.destinationPriority) {
+            return a.destinationPriority - b.destinationPriority;
+          }
+        } else if (a.destinationPriority !== undefined) {
+          return -1; // a has priority, b doesn't
+        } else if (b.destinationPriority !== undefined) {
+          return 1; // b has priority, a doesn't
+        }
+
+        // Then sort by relative deficit (larger relative deficit = higher priority)
+        return b.relativeDeficit - a.relativeDeficit;
+      });
 
       // Sort chains with excess by source priority (lowest number first) and then by excess (largest excess first)
       chainsWithExcess.sort((a, b) => {

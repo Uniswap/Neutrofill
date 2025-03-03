@@ -91,10 +91,13 @@ export class RebalanceDecisionMaker {
   public calculateRebalanceAmount(
     destinationChain: {
       deficitUsd: number;
+      relativeDeficit?: number;
+      targetPercentage?: number;
     },
     sourceChain: {
       chainId: SupportedChainId;
       excessUsd: number;
+      targetPercentage?: number;
     },
     tokenInfo: {
       balanceUsd: number;
@@ -105,13 +108,43 @@ export class RebalanceDecisionMaker {
     amountToRebalanceUsd: number;
     tokenAmount: number;
   } {
-    // Calculate the amount to rebalance, considering the actual token balance
+    // Calculate a safe percentage of the deficit to address in one operation
+    // Higher relative deficits get a higher percentage (up to 50%)
+    const relativeDeficit = destinationChain.relativeDeficit || 0;
+    const deficitCorrectionFactor = Math.min(0.5, relativeDeficit / 200);
+
+    // Calculate a target amount based on the deficit and correction factor
+    // For severe deficits (>90% relative), use a higher correction factor
+    const targetAmountUsd =
+      destinationChain.deficitUsd *
+      (relativeDeficit > 90 ? 0.5 : deficitCorrectionFactor);
+
+    // Calculate a safe amount that won't deplete the source chain below its target
+    // Leave a 5% buffer to avoid oscillation
+    const safeExcessUsd = Math.max(
+      0,
+      sourceChain.excessUsd - 0.05 * balances.totalBalance
+    );
+
+    // Calculate the amount to rebalance, considering all constraints
     const maxTokenUsd = tokenInfo.balanceUsd;
     let amountToRebalanceUsd = Math.min(
-      Math.abs(destinationChain.deficitUsd),
-      Math.abs(sourceChain.excessUsd),
+      targetAmountUsd,
+      safeExcessUsd,
       maxTokenUsd,
       this.maxRebalanceUsdValue
+    );
+
+    // Log the calculation details
+    this.logger.debug(
+      `Rebalance amount calculation: targetAmount=${targetAmountUsd.toFixed(2)}, safeExcess=${safeExcessUsd.toFixed(2)}, maxToken=${maxTokenUsd.toFixed(2)}, maxRebalance=${this.maxRebalanceUsdValue}`,
+      {
+        relativeDeficit,
+        deficitCorrectionFactor,
+        destinationChainDeficit: destinationChain.deficitUsd,
+        sourceChainExcess: sourceChain.excessUsd,
+        finalAmount: amountToRebalanceUsd,
+      }
     );
 
     // Check if the amount to rebalance is less than the minimum threshold
