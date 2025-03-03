@@ -197,6 +197,17 @@ export class BalanceAnalyzer {
           // If this is a token-specific deficit, prioritize that token
           const specificToken = destinationChain.token;
 
+          // Log token-specific deficits for debugging
+          this.logger.debug(
+            `Token-specific deficits for destination chain ${destinationChain.chainId}:`,
+            {
+              specificToken,
+              relativeDeficit: destinationChain.relativeDeficit,
+              tokenCurrentPercentage: destinationChain.tokenCurrentPercentage,
+              tokenTargetPercentage: destinationChain.tokenTargetPercentage,
+            }
+          );
+
           // Determine the token to rebalance
           const { tokenToRebalance, tokenInfo } =
             this.decisionMaker.selectTokenToRebalance(

@@ -43,7 +43,8 @@ export class RebalanceDecisionMaker {
         excessPercentage?: number;
       }>;
     },
-    specificToken?: string
+    specificToken?: string,
+    destinationTokenDeficits?: Record<string, number> // New parameter to pass token-specific relative deficits
   ): {
     tokenToRebalance: string;
     tokenInfo: {
@@ -57,6 +58,17 @@ export class RebalanceDecisionMaker {
     let tokenToRebalance: string;
     let tokenInfo: (typeof sourceChain.availableTokens)[0];
 
+    // Log available tokens for debugging
+    this.logger.debug(
+      "Available tokens for rebalance:",
+      sourceChain.availableTokens.map((t) => ({
+        token: t.token,
+        balanceUsd: t.balanceUsd,
+        priority: t.priority,
+        excessPercentage: t.excessPercentage || 0,
+      }))
+    );
+
     if (specificToken) {
       // Find this token in the available tokens on the source chain
       const specificTokenInfo = sourceChain.availableTokens.find(
@@ -69,17 +81,86 @@ export class RebalanceDecisionMaker {
       if (specificTokenInfo) {
         tokenToRebalance = specificToken;
         tokenInfo = specificTokenInfo;
+        this.logger.debug(
+          `Selected specific token ${specificToken} with excess`
+        );
       } else {
-        // If the specific token isn't available with excess, fall back to normal priority-based selection
-        sourceChain.availableTokens.sort((a, b) => b.priority - a.priority);
-        tokenInfo = sourceChain.availableTokens[0];
-        tokenToRebalance = tokenInfo.token;
+        // If the specific token isn't available with excess, try to find WETH if the specific token was ETH
+        // or ETH if the specific token was WETH (they're interchangeable)
+        if (specificToken === "ETH" || specificToken === "WETH") {
+          const alternativeToken = specificToken === "ETH" ? "WETH" : "ETH";
+          const alternativeTokenInfo = sourceChain.availableTokens.find(
+            (t) =>
+              t.token === alternativeToken &&
+              t.excessPercentage &&
+              t.excessPercentage > 0
+          );
+
+          if (alternativeTokenInfo) {
+            tokenToRebalance = alternativeToken;
+            tokenInfo = alternativeTokenInfo;
+            this.logger.debug(
+              `Selected alternative token ${alternativeToken} for ${specificToken}`
+            );
+            return { tokenToRebalance, tokenInfo };
+          }
+        }
+
+        // If no specific token or alternative is available, try all tokens with excess
+        // Filter to only tokens with excess
+        const tokensWithExcess = sourceChain.availableTokens.filter(
+          (t) => t.excessPercentage && t.excessPercentage > 0
+        );
+
+        if (tokensWithExcess.length > 0) {
+          // Sort by excess percentage (highest first) to prioritize tokens that are most above target
+          tokensWithExcess.sort(
+            (a, b) => (b.excessPercentage || 0) - (a.excessPercentage || 0)
+          );
+
+          tokenInfo = tokensWithExcess[0];
+          tokenToRebalance = tokenInfo.token;
+          this.logger.debug(
+            `Selected token with highest excess percentage: ${tokenToRebalance} (${tokenInfo.excessPercentage?.toFixed(2)}%)`
+          );
+        } else {
+          // If no tokens with excess, fall back to highest balance
+          sourceChain.availableTokens.sort(
+            (a, b) => b.balanceUsd - a.balanceUsd
+          );
+          tokenInfo = sourceChain.availableTokens[0];
+          tokenToRebalance = tokenInfo.token;
+          this.logger.debug(
+            `Falling back to token with highest balance: ${tokenToRebalance}`
+          );
+        }
       }
     } else {
-      // Sort available tokens by priority (highest first)
-      sourceChain.availableTokens.sort((a, b) => b.priority - a.priority);
-      tokenInfo = sourceChain.availableTokens[0];
-      tokenToRebalance = tokenInfo.token;
+      // When no specific token is requested, prioritize tokens with excess
+      const tokensWithExcess = sourceChain.availableTokens.filter(
+        (t) => t.excessPercentage && t.excessPercentage > 0
+      );
+
+      if (tokensWithExcess.length > 0) {
+        // Sort by excess percentage (highest first) to prioritize tokens that are most above target
+        tokensWithExcess.sort(
+          (a, b) => (b.excessPercentage || 0) - (a.excessPercentage || 0)
+        );
+
+        tokenInfo = tokensWithExcess[0];
+        tokenToRebalance = tokenInfo.token;
+        this.logger.debug(
+          `No specific token requested, selected token with highest excess: ${tokenToRebalance} (${tokenInfo.excessPercentage?.toFixed(2)}%)`
+        );
+      } else {
+        // If no tokens with excess, fall back to highest balance
+        sourceChain.availableTokens.sort((a, b) => b.balanceUsd - a.balanceUsd);
+        tokenInfo = sourceChain.availableTokens[0];
+        tokenToRebalance = tokenInfo.token;
+        this.logger.debug(
+          `No tokens with excess, selected ${tokenToRebalance} by balance`
+        );
+      }
     }
 
     return { tokenToRebalance, tokenInfo };
@@ -111,19 +192,20 @@ export class RebalanceDecisionMaker {
     // Calculate a safe percentage of the deficit to address in one operation
     // Higher relative deficits get a higher percentage (up to 50%)
     const relativeDeficit = destinationChain.relativeDeficit || 0;
-    const deficitCorrectionFactor = Math.min(0.5, relativeDeficit / 200);
+    // Increase the correction factor for all deficits to ensure we're not too conservative
+    const deficitCorrectionFactor = Math.min(0.5, relativeDeficit / 100);
 
     // Calculate a target amount based on the deficit and correction factor
-    // For severe deficits (>90% relative), use a higher correction factor
+    // For severe deficits (>70% relative), use a higher correction factor
     const targetAmountUsd =
       destinationChain.deficitUsd *
-      (relativeDeficit > 90 ? 0.5 : deficitCorrectionFactor);
+      (relativeDeficit > 70 ? 0.7 : deficitCorrectionFactor);
 
     // Calculate a safe amount that won't deplete the source chain below its target
-    // Leave a 5% buffer to avoid oscillation
+    // Use a smaller buffer (1% of excess) to avoid being too conservative
     const safeExcessUsd = Math.max(
       0,
-      sourceChain.excessUsd - 0.05 * balances.totalBalance
+      sourceChain.excessUsd - 0.01 * sourceChain.excessUsd
     );
 
     // Calculate the amount to rebalance, considering all constraints
