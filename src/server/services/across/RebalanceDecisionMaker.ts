@@ -32,6 +32,7 @@ export class RebalanceDecisionMaker {
 
   /**
    * Select the token to use for rebalancing
+   * Never selects WETH for rebalancing
    */
   public selectTokenToRebalance(
     sourceChain: {
@@ -58,16 +59,51 @@ export class RebalanceDecisionMaker {
     let tokenToRebalance: string;
     let tokenInfo: (typeof sourceChain.availableTokens)[0];
 
+    // Filter out WETH from available tokens - we never want to bridge WETH
+    const filteredAvailableTokens = sourceChain.availableTokens.filter(
+      (t) => t.token !== "WETH"
+    );
+
     // Log available tokens for debugging
     this.logger.debug(
-      "Available tokens for rebalance:",
-      sourceChain.availableTokens.map((t) => ({
+      "Available tokens for rebalance (excluding WETH):",
+      filteredAvailableTokens.map((t) => ({
         token: t.token,
         balanceUsd: t.balanceUsd,
         priority: t.priority,
         excessPercentage: t.excessPercentage || 0,
       }))
     );
+
+    // If specific token is WETH, use ETH instead
+    const effectiveSpecificToken =
+      specificToken === "WETH"
+        ? (() => {
+            this.logger.info(
+              "WETH specified for rebalancing, using ETH instead"
+            );
+            return "ETH";
+          })()
+        : specificToken;
+
+    // If no tokens are available after filtering out WETH, return undefined
+    // The calling code will handle this case
+    if (filteredAvailableTokens.length === 0) {
+      this.logger.info(
+        "No tokens available for rebalancing after filtering out WETH"
+      );
+      // Use the first available token from the original list as a fallback
+      // This ensures we always return something, even if it's WETH
+      // The caller can decide whether to proceed with the rebalance
+      if (sourceChain.availableTokens.length > 0) {
+        tokenInfo = sourceChain.availableTokens[0];
+        tokenToRebalance = tokenInfo.token;
+        this.logger.debug(
+          `No non-WETH tokens available, falling back to: ${tokenToRebalance}`
+        );
+        return { tokenToRebalance, tokenInfo };
+      }
+    }
 
     if (specificToken) {
       // Find this token in the available tokens on the source chain
@@ -145,7 +181,8 @@ export class RebalanceDecisionMaker {
       }
     } else {
       // When no specific token is requested, prioritize tokens with excess
-      const tokensWithExcess = sourceChain.availableTokens.filter(
+      // Filter out WETH since we never want to bridge it
+      const tokensWithExcess = filteredAvailableTokens.filter(
         (t) => t.excessPercentage && t.excessPercentage > 0
       );
 
@@ -161,13 +198,24 @@ export class RebalanceDecisionMaker {
           `No specific token requested, selected token with highest excess: ${tokenToRebalance} (${tokenInfo.excessPercentage?.toFixed(2)}%)`
         );
       } else {
-        // If no tokens with excess, fall back to highest balance
-        sourceChain.availableTokens.sort((a, b) => b.balanceUsd - a.balanceUsd);
-        tokenInfo = sourceChain.availableTokens[0];
-        tokenToRebalance = tokenInfo.token;
-        this.logger.debug(
-          `No tokens with excess, selected ${tokenToRebalance} by balance`
-        );
+        // If no tokens with excess, fall back to highest balance (excluding WETH)
+        if (filteredAvailableTokens.length > 0) {
+          filteredAvailableTokens.sort((a, b) => b.balanceUsd - a.balanceUsd);
+          tokenInfo = filteredAvailableTokens[0];
+          tokenToRebalance = tokenInfo.token;
+          this.logger.debug(
+            `No tokens with excess, selected ${tokenToRebalance} by balance (excluding WETH)`
+          );
+        } else {
+          // If no tokens are available after filtering out WETH, log a message
+          this.logger.info("No non-WETH tokens available for rebalancing");
+          // The amount calculation will skip this rebalance downstream
+          sourceChain.availableTokens.sort(
+            (a, b) => b.balanceUsd - a.balanceUsd
+          );
+          tokenInfo = sourceChain.availableTokens[0];
+          tokenToRebalance = tokenInfo.token;
+        }
       }
     }
 

@@ -160,15 +160,22 @@ export class RebalanceService {
       }
 
       // Prepare deposit parameters using the AcrossService method
+      // Note: Across always converts WETH to ETH on the destination chain
       const depositParams = this.acrossService.prepareDepositParams(
         feeResponse,
         this.accountAddress,
         constantsTokenConfig.address,
         BigInt(rawAmount),
         toChainId,
-        undefined,
-        "0x0000000000000000000000000000000000000000" as Address
+        undefined // recipient (defaults to sender)
       );
+
+      // Log if this is a WETH transfer
+      if (tokenSymbol === "WETH") {
+        this.logger.info(
+          `WETH transfer from chain ${fromChainId} to chain ${toChainId}. Will be received as ETH.`
+        );
+      }
 
       // Execute the deposit
       const txHash = await this.acrossService.executeDeposit(

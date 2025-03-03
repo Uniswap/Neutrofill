@@ -238,6 +238,14 @@ export class BalanceAnalyzer {
               specificToken
             );
 
+          // Skip if the selected token is WETH - we never want to bridge WETH
+          if (tokenToRebalance === "WETH") {
+            this.logger.info(
+              `Skipping rebalance from chain ${sourceChain.chainId} to chain ${destinationChain.chainId} because WETH was selected, and we never want to bridge WETH`
+            );
+            continue; // Try the next source chain
+          }
+
           // Log the selected token
           this.logger.info(
             `Selected token ${tokenToRebalance} for rebalance from chain ${sourceChain.chainId} to chain ${destinationChain.chainId}`,

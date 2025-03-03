@@ -99,8 +99,26 @@ export class AcrossService {
     inputAmount: bigint,
     destinationChainId: number,
     recipient?: Address,
-    outputToken: Address = "0x0000000000000000000000000000000000000000"
+    outputToken?: Address
   ): AcrossDepositParams {
+    // Always use address(0) as the output token to receive ETH on the destination chain
+    // This is because Across automatically converts to ETH and doesn't support bridging to WETH directly
+    const finalOutputToken: Address =
+      "0x0000000000000000000000000000000000000000";
+
+    // Log if this is a WETH transfer
+    let isWethTransfer = false;
+    for (const [chainIdStr, config] of Object.entries(CHAIN_CONFIG)) {
+      if (
+        config.tokens.WETH.address.toLowerCase() === inputToken.toLowerCase()
+      ) {
+        isWethTransfer = true;
+        this.logger.info(
+          `WETH transfer detected from chain ${chainIdStr} to chain ${destinationChainId}. Will be received as ETH.`
+        );
+        break;
+      }
+    }
     // Calculate output amount by subtracting the relay fee from the input amount
     const outputAmount = inputAmount - BigInt(feeResponse.totalRelayFee.total);
 
@@ -111,7 +129,7 @@ export class AcrossService {
       depositor,
       recipient: recipient || depositor,
       inputToken,
-      outputToken,
+      outputToken: finalOutputToken,
       inputAmount: inputAmount.toString(),
       outputAmount: outputAmount.toString(),
       destinationChainId,
@@ -166,12 +184,19 @@ export class AcrossService {
         }
       }
 
+      // Always set output token to address(0) to receive ETH on the destination chain
+      // This is because Across automatically converts to ETH and doesn't support bridging to WETH directly
+      adjustedDepositParams.outputToken =
+        "0x0000000000000000000000000000000000000000";
+
       // Log the deposit parameters for debugging
       this.logger.info("Executing deposit with parameters:", {
         originChainId,
         spokePoolAddress,
         inputToken: adjustedDepositParams.inputToken,
+        outputToken: adjustedDepositParams.outputToken,
         inputAmount: adjustedDepositParams.inputAmount,
+        outputAmount: adjustedDepositParams.outputAmount,
         destinationChainId: adjustedDepositParams.destinationChainId,
         recipient: adjustedDepositParams.recipient,
         isEthTransfer,
@@ -412,22 +437,20 @@ export class AcrossService {
         );
       }
 
-      this.logger.info(
-        `${[
-          params.depositor,
-          params.recipient,
-          params.inputToken,
-          params.outputToken,
-          BigInt(params.inputAmount).toString(),
-          BigInt(params.outputAmount).toString(),
-          BigInt(params.destinationChainId).toString(),
-          params.exclusiveRelayer,
-          params.quoteTimestamp,
-          params.fillDeadline,
-          params.exclusivityDeadline,
-          params.message as `0x${string}`,
-        ]}`
-      );
+      this.logger.info("Encoding deposit with parameters:", {
+        depositor: params.depositor,
+        recipient: params.recipient,
+        inputToken: params.inputToken,
+        outputToken: params.outputToken,
+        inputAmount: BigInt(params.inputAmount).toString(),
+        outputAmount: BigInt(params.outputAmount).toString(),
+        destinationChainId: BigInt(params.destinationChainId).toString(),
+        exclusiveRelayer: params.exclusiveRelayer,
+        quoteTimestamp: params.quoteTimestamp,
+        fillDeadline: params.fillDeadline,
+        exclusivityDeadline: params.exclusivityDeadline,
+        message: params.message,
+      });
 
       // Encode the function call
       const encodedCall = encodeFunctionData({

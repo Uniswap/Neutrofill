@@ -63,7 +63,7 @@ export const DEFAULT_REBALANCE_CONFIG: RebalanceConfig = {
     },
     // Unichain
     130: {
-      targetPercentage: 50, // 50% of funds on Unichain
+      targetPercentage: 30, // 50% of funds on Unichain
       triggerThreshold: 20, // Trigger rebalance if below 20%
       sourcePriority: 3, // Third priority as source
       canBeDestination: true, // Can be a destination for bridging
