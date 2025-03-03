@@ -1,16 +1,16 @@
 import { EventEmitter } from "node:events";
 import type { Address, PublicClient, WalletClient } from "viem";
-import { Logger } from "../../utils/logger.js";
 import type { SupportedChainId } from "../../config/constants.js";
-import type { AggregateBalanceService } from "../balance/AggregateBalanceService.js";
-import type { RebalanceService } from "./RebalanceService.js";
-import { RebalanceOperationStore } from "./RebalanceOperationStore.js";
+import type { AggregateBalance } from "../../types/balance.js";
 import type {
   RebalanceConfig,
   RebalanceOperation,
 } from "../../types/rebalance.js";
-import type { AggregateBalance } from "../../types/balance.js";
+import { Logger } from "../../utils/logger.js";
+import type { AggregateBalanceService } from "../balance/AggregateBalanceService.js";
 import { BalanceAnalyzer } from "./BalanceAnalyzer.js";
+import { RebalanceOperationStore } from "./RebalanceOperationStore.js";
+import type { RebalanceService } from "./RebalanceService.js";
 
 /**
  * Service for automatically rebalancing funds across chains based on configured thresholds

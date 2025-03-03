@@ -1,17 +1,17 @@
-import { Logger } from "../../utils/logger.js";
 import type { SupportedChainId } from "../../config/constants.js";
+import { DEFAULT_REBALANCE_CONFIG } from "../../config/rebalance.js";
 import type { AggregateBalance } from "../../types/balance.js";
 import type {
   RebalanceConfig,
   RebalanceOperation,
 } from "../../types/rebalance.js";
+import { Logger } from "../../utils/logger.js";
+import { BalanceCalculator } from "./BalanceCalculator.js";
+import { RebalanceDecisionMaker } from "./RebalanceDecisionMaker.js";
 import { RebalanceFailureTracker } from "./RebalanceFailureTracker.js";
 import type { RebalanceOperationStore } from "./RebalanceOperationStore.js";
 import type { RebalanceService } from "./RebalanceService.js";
-import { BalanceCalculator } from "./BalanceCalculator.js";
-import { RebalanceDecisionMaker } from "./RebalanceDecisionMaker.js";
 import { TokenUtils } from "./TokenUtils.js";
-import { DEFAULT_REBALANCE_CONFIG } from "../../config/rebalance.js";
 
 /**
  * Service for analyzing balances and determining rebalance needs

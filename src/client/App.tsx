@@ -1,10 +1,10 @@
 import React, { useEffect, useState } from "react";
-import { WebSocketClient } from "./websocket";
 import {
   formatEthBalance,
-  formatUsdcBalance,
   formatTokenAmount,
+  formatUsdcBalance,
 } from "./utils";
+import { WebSocketClient } from "./websocket";
 
 interface FillRequest {
   request: unknown;

@@ -1,9 +1,9 @@
 import { EventEmitter } from "node:events";
 import type { SupportedChainId } from "../../config/constants.js";
-import { Logger } from "../../utils/logger.js";
-import type { TokenBalanceService } from "./TokenBalanceService.js";
-import type { PriceService } from "../price/PriceService.js";
 import type { AggregateBalance, ChainBalance } from "../../types/balance.js";
+import { Logger } from "../../utils/logger.js";
+import type { PriceService } from "../price/PriceService.js";
+import type { TokenBalanceService } from "./TokenBalanceService.js";
 
 interface InternalAggregateBalances extends AggregateBalance {
   // Per-chain balances

@@ -6,10 +6,10 @@ import {
   serializeSignature,
   toBytes,
 } from "viem";
+import type { SupportedChainId } from "../config/constants.js";
 import type { TheCompactService } from "../services/TheCompactService";
 import type { BroadcastRequest } from "../types/broadcast";
 import { Logger } from "../utils/logger.js";
-import type { SupportedChainId } from "../config/constants.js";
 
 const logger = new Logger("SignatureValidation");
 

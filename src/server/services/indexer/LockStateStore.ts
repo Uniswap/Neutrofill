@@ -1,5 +1,5 @@
-import { Logger } from "../../utils/logger.js";
 import type { Address } from "viem";
+import { Logger } from "../../utils/logger.js";
 
 const logger = new Logger("LockStateStore");
 

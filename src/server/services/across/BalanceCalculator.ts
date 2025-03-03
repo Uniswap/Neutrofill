@@ -1,7 +1,7 @@
-import { Logger } from "../../utils/logger.js";
 import type { SupportedChainId } from "../../config/constants.js";
 import type { AggregateBalance } from "../../types/balance.js";
 import type { RebalanceConfig } from "../../types/rebalance.js";
+import { Logger } from "../../utils/logger.js";
 import { TokenUtils } from "./TokenUtils.js";
 
 /**

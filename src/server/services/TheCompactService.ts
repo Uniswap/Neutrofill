@@ -1,14 +1,14 @@
 import {
+  type Address,
   type PublicClient,
   type WalletClient,
-  type Address,
   encodeFunctionData,
 } from "viem";
-import { Logger } from "../utils/logger.js";
 import {
-  type SupportedChainId,
   CHAIN_PRIORITY_FEES,
+  type SupportedChainId,
 } from "../config/constants.js";
+import { Logger } from "../utils/logger.js";
 
 const logger = new Logger("TheCompactService");
 

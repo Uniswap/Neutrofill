@@ -1,6 +1,6 @@
 import type { Address, PublicClient, WalletClient } from "viem";
-import { Logger } from "../../utils/logger.js";
 import { CHAIN_CONFIG } from "../../config/constants.js";
+import { Logger } from "../../utils/logger.js";
 import { UniswapService } from "./UniswapService.js";
 
 /**

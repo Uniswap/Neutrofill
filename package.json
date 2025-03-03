@@ -29,12 +29,7 @@
       "biome check --formatter-enabled=true"
     ]
   },
-  "keywords": [
-    "blockchain",
-    "ethereum",
-    "transaction",
-    "automation"
-  ],
+  "keywords": ["blockchain", "ethereum", "transaction", "automation"],
   "license": "MIT",
   "dependencies": {
     "@types/cors": "^2.8.17",

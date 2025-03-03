@@ -1,10 +1,10 @@
 import { randomUUID } from "node:crypto";
 import type { SupportedChainId } from "../../config/constants.js";
-import { Logger } from "../../utils/logger.js";
 import type {
   RebalanceOperation,
   RebalanceStatus,
 } from "../../types/rebalance.js";
+import { Logger } from "../../utils/logger.js";
 
 /**
  * Store for managing rebalance operations with locking mechanism

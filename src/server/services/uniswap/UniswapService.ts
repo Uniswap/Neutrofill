@@ -1,6 +1,6 @@
-import { Logger } from "../../utils/logger.js";
 import type { WalletClient } from "viem";
 import { signTypedData } from "viem/actions";
+import { Logger } from "../../utils/logger.js";
 
 // Types based on the Uniswap API swagger
 export interface RequestId {

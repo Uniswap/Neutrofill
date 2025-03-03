@@ -19,27 +19,27 @@ import {
   SUPPORTED_CHAINS,
   type SupportedChainId,
 } from "./config/constants.js";
+import { DEFAULT_REBALANCE_CONFIG } from "./config/rebalance.js";
+import { checkAndSetTokenApprovals } from "./helpers/approvals.js";
+import { processBroadcastTransaction } from "./helpers/broadcast.js";
 import { TheCompactService } from "./services/TheCompactService.js";
-import { PriceService } from "./services/price/PriceService.js";
-import { TokenBalanceService } from "./services/balance/TokenBalanceService.js";
-import { AggregateBalanceService } from "./services/balance/AggregateBalanceService.js";
-import { IndexerService } from "./services/indexer/IndexerService.js";
-import { LockStateStore } from "./services/indexer/LockStateStore.js"; // Import LockStateStore
-import { ForcedWithdrawalEnablerService } from "./services/indexer/ForcedWithdrawalEnablerService.js";
-import { WithdrawalExecutorService } from "./services/indexer/WithdrawalExecutorService.js";
-import { WebSocketManager } from "./services/websocket/WebSocketManager.js";
-import { BalanceRebalancerService } from "./services/across/index.js";
-import { UniswapBalanceRebalancerService } from "./services/uniswap/index.js";
 import { AcrossService } from "./services/across/AcrossService.js";
 import { RebalanceService } from "./services/across/RebalanceService.js";
+import { BalanceRebalancerService } from "./services/across/index.js";
+import { AggregateBalanceService } from "./services/balance/AggregateBalanceService.js";
+import { TokenBalanceService } from "./services/balance/TokenBalanceService.js";
+import { ForcedWithdrawalEnablerService } from "./services/indexer/ForcedWithdrawalEnablerService.js";
+import { IndexerService } from "./services/indexer/IndexerService.js";
+import { LockStateStore } from "./services/indexer/LockStateStore.js"; // Import LockStateStore
+import { WithdrawalExecutorService } from "./services/indexer/WithdrawalExecutorService.js";
+import { PriceService } from "./services/price/PriceService.js";
+import { UniswapBalanceRebalancerService } from "./services/uniswap/index.js";
+import { WebSocketManager } from "./services/websocket/WebSocketManager.js";
 import type { BroadcastRequest } from "./types/broadcast.js";
 import { deriveClaimHash } from "./utils.js";
 import { Logger } from "./utils/logger.js";
 import { validateBroadcastRequestMiddleware } from "./validation/broadcast.js";
 import { verifyBroadcastRequest } from "./validation/signature.js";
-import { processBroadcastTransaction } from "./helpers/broadcast.js";
-import { checkAndSetTokenApprovals } from "./helpers/approvals.js";
-import { DEFAULT_REBALANCE_CONFIG } from "./config/rebalance.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);

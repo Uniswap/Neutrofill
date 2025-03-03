@@ -1,20 +1,20 @@
+import fetch from "node-fetch";
 import {
-  encodeFunctionData,
   type Address,
+  type Chain,
   type PublicClient,
   type WalletClient,
-  type Chain,
+  encodeFunctionData,
 } from "viem";
-import fetch from "node-fetch";
+import { CHAIN_CONFIG, type SupportedChainId } from "../../config/constants.js";
 import type {
-  AcrossFeeRequest,
-  AcrossFeeResponse,
   AcrossDepositParams,
   AcrossDepositStatusRequest,
   AcrossDepositStatusResponse,
+  AcrossFeeRequest,
+  AcrossFeeResponse,
 } from "../../types/across.js";
 import { Logger } from "../../utils/logger.js";
-import { CHAIN_CONFIG, type SupportedChainId } from "../../config/constants.js";
 
 /**
  * Service for interacting with the Across Protocol for cross-chain bridging

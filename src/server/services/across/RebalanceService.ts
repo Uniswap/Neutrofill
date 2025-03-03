@@ -1,12 +1,12 @@
 import type { Address, PublicClient, WalletClient } from "viem";
-import { AcrossService } from "./AcrossService.js";
-import { Logger } from "../../utils/logger.js";
 import {
-  type SupportedChainId,
-  SUPPORTED_CHAINS,
   CHAIN_CONFIG,
+  SUPPORTED_CHAINS,
+  type SupportedChainId,
 } from "../../config/constants.js";
 import { DEFAULT_REBALANCE_CONFIG } from "../../config/rebalance.js";
+import { Logger } from "../../utils/logger.js";
+import { AcrossService } from "./AcrossService.js";
 
 /**
  * Service for rebalancing funds between chains using Across Protocol

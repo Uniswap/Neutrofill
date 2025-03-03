@@ -1,14 +1,14 @@
 import { EventEmitter } from "node:events";
 import type { Address, PublicClient, WalletClient } from "viem";
-import { Logger } from "../../utils/logger.js";
-import { UniswapRebalanceService } from "./UniswapRebalanceService.js";
-import type { AggregateBalanceService } from "../balance/AggregateBalanceService.js";
-import type { TokenBalanceService } from "../balance/TokenBalanceService.js";
 import type {
   AggregateBalance,
   TokenBalance as ChainTokenBalance,
 } from "../../types/balance.js";
 import type { RebalanceConfig } from "../../types/rebalance.js";
+import { Logger } from "../../utils/logger.js";
+import type { AggregateBalanceService } from "../balance/AggregateBalanceService.js";
+import type { TokenBalanceService } from "../balance/TokenBalanceService.js";
+import { UniswapRebalanceService } from "./UniswapRebalanceService.js";
 
 interface UniswapTokenRebalanceTarget {
   symbol: string;
