@@ -79,7 +79,15 @@ export function App() {
   const [wsStatus, setWsStatus] = useState<ConnectionStatus>("connecting");
 
   useEffect(() => {
-    const ws = new WebSocketClient("ws://localhost:3000/ws");
+    // Determine WebSocket URL based on the current environment
+    const wsProtocol = window.location.protocol === "https:" ? "wss:" : "ws:";
+    const wsHost =
+      window.location.hostname === "localhost"
+        ? "localhost:3000"
+        : window.location.host;
+    const wsUrl = `${wsProtocol}//${wsHost}/ws`;
+
+    const ws = new WebSocketClient(wsUrl);
 
     ws.onOpen = () => setWsStatus("connected");
     ws.onClose = () => setWsStatus("disconnected");
