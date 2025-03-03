@@ -208,10 +208,33 @@ export class BalanceAnalyzer {
             }
           );
 
+          // Filter available tokens to only those that would result in a non-zero rebalance amount
+          const viableTokens = sourceChain.availableTokens.filter((tokenInfo) =>
+            this.decisionMaker.preCheckRebalanceAmount(
+              destinationChain,
+              sourceChain,
+              tokenInfo
+            )
+          );
+
+          // If no viable tokens, skip this source chain
+          if (viableTokens.length === 0) {
+            this.logger.debug(
+              `Skipping source chain ${sourceChain.chainId} as no tokens would result in a non-zero rebalance amount`
+            );
+            continue;
+          }
+
+          // Create a new sourceChain object with only viable tokens
+          const filteredSourceChain = {
+            ...sourceChain,
+            availableTokens: viableTokens,
+          };
+
           // Determine the token to rebalance
           const { tokenToRebalance, tokenInfo } =
             this.decisionMaker.selectTokenToRebalance(
-              sourceChain,
+              filteredSourceChain,
               specificToken
             );
 

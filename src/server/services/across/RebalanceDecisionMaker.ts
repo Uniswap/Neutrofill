@@ -167,6 +167,48 @@ export class RebalanceDecisionMaker {
   }
 
   /**
+   * Pre-check if a token would result in a non-zero rebalance amount
+   * This helps filter out options that would be skipped anyway
+   */
+  public preCheckRebalanceAmount(
+    destinationChain: {
+      deficitUsd: number;
+      relativeDeficit?: number;
+    },
+    sourceChain: {
+      excessUsd: number;
+    },
+    tokenInfo: {
+      balanceUsd: number;
+    }
+  ): boolean {
+    // Calculate a minimum viable amount based on the deficit and relative deficit
+    const relativeDeficit = destinationChain.relativeDeficit || 0;
+
+    // Use a more aggressive correction factor for the pre-check
+    const deficitCorrectionFactor = Math.min(0.7, relativeDeficit / 70);
+
+    // Calculate a target amount
+    const targetAmountUsd =
+      destinationChain.deficitUsd *
+      (relativeDeficit > 50 ? 0.8 : deficitCorrectionFactor);
+
+    // Calculate a safe excess with minimal buffer
+    const safeExcessUsd = Math.max(0, sourceChain.excessUsd * 0.99);
+
+    // Calculate the potential amount
+    const potentialAmountUsd = Math.min(
+      targetAmountUsd,
+      safeExcessUsd,
+      tokenInfo.balanceUsd,
+      this.maxRebalanceUsdValue
+    );
+
+    // Check if this would exceed the minimum threshold
+    return potentialAmountUsd >= this.minRebalanceUsdValue;
+  }
+
+  /**
    * Calculate the amount to rebalance
    */
   public calculateRebalanceAmount(
@@ -190,26 +232,36 @@ export class RebalanceDecisionMaker {
     tokenAmount: number;
   } {
     // Calculate a safe percentage of the deficit to address in one operation
-    // Higher relative deficits get a higher percentage (up to 50%)
+    // Higher relative deficits get a higher percentage (up to 80%)
     const relativeDeficit = destinationChain.relativeDeficit || 0;
-    // Increase the correction factor for all deficits to ensure we're not too conservative
-    const deficitCorrectionFactor = Math.min(0.5, relativeDeficit / 100);
+
+    // More aggressive correction factor to ensure we're not too conservative
+    // For higher relative deficits, use an even higher factor
+    let deficitCorrectionFactor: number;
+    if (relativeDeficit > 80) {
+      deficitCorrectionFactor = 0.8; // Very high deficit, use 80%
+    } else if (relativeDeficit > 60) {
+      deficitCorrectionFactor = 0.7; // High deficit, use 70%
+    } else if (relativeDeficit > 40) {
+      deficitCorrectionFactor = 0.6; // Medium deficit, use 60%
+    } else {
+      deficitCorrectionFactor = Math.max(0.3, relativeDeficit / 100); // At least 30%
+    }
 
     // Calculate a target amount based on the deficit and correction factor
-    // For severe deficits (>70% relative), use a higher correction factor
     const targetAmountUsd =
-      destinationChain.deficitUsd *
-      (relativeDeficit > 70 ? 0.7 : deficitCorrectionFactor);
+      destinationChain.deficitUsd * deficitCorrectionFactor;
 
     // Calculate a safe amount that won't deplete the source chain below its target
-    // Use a smaller buffer (1% of excess) to avoid being too conservative
+    // Use a minimal buffer (0.5% of excess) to avoid being too conservative
     const safeExcessUsd = Math.max(
       0,
-      sourceChain.excessUsd - 0.01 * sourceChain.excessUsd
+      sourceChain.excessUsd - 0.005 * sourceChain.excessUsd
     );
 
     // Calculate the amount to rebalance, considering all constraints
     const maxTokenUsd = tokenInfo.balanceUsd;
+
     let amountToRebalanceUsd = Math.min(
       targetAmountUsd,
       safeExcessUsd,
@@ -232,7 +284,7 @@ export class RebalanceDecisionMaker {
     // Check if the amount to rebalance is less than the minimum threshold
     if (amountToRebalanceUsd < this.minRebalanceUsdValue) {
       this.logger.debug(
-        `Calculated rebalance amount ${amountToRebalanceUsd} USD is less than minimum threshold ${this.minRebalanceUsdValue} USD, skipping rebalance`
+        `Calculated rebalance amount ${amountToRebalanceUsd.toFixed(2)} USD is less than minimum threshold ${this.minRebalanceUsdValue} USD, skipping rebalance`
       );
       amountToRebalanceUsd = 0; // Set to zero to indicate no rebalance should occur
     }
