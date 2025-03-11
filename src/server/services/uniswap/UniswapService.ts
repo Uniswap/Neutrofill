@@ -325,7 +325,7 @@ export class UniswapService {
 
         // If approval transaction is returned, it needs to be executed first
         if (approvalResponse.approval) {
-          this.logger.info("Token approval required before swap", {
+          this.logger.debug("Token approval required before swap", {
             token: tokenIn,
             approvalTx: approvalResponse.approval,
           });
@@ -348,7 +348,7 @@ export class UniswapService {
       // If we have permitData and a wallet client, sign the permit
       if (quoteResponse.permitData && this.walletClient) {
         try {
-          this.logger.info("Signing permit data for token approval");
+          this.logger.debug("Signing permit data for token approval");
 
           // Get the account from the wallet client
           const account = this.walletClient.account;
@@ -398,7 +398,7 @@ export class UniswapService {
             message: values,
           });
 
-          this.logger.info("Successfully signed permit data");
+          this.logger.debug("Successfully signed permit data");
 
           // Include the permit data and signature in the swap request
           swapRequest = {
@@ -409,7 +409,7 @@ export class UniswapService {
         } catch (error) {
           this.logger.error("Error signing permit data:", error);
           // Fall back to traditional approval flow
-          this.logger.info("Falling back to traditional approval flow");
+          this.logger.debug("Falling back to traditional approval flow");
 
           // Check for approval explicitly
           const approvalRequest: ApprovalRequest = {
@@ -422,7 +422,7 @@ export class UniswapService {
           const approvalResponse = await this.checkApproval(approvalRequest);
 
           if (approvalResponse.approval) {
-            this.logger.info("Token approval required before swap", {
+            this.logger.debug("Token approval required before swap", {
               token: tokenIn,
               approvalTx: approvalResponse.approval,
             });

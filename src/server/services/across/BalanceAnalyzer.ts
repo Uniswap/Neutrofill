@@ -173,7 +173,7 @@ export class BalanceAnalyzer {
           }
 
           // Log the selected source and destination chains
-          this.logger.info(
+          this.logger.debug(
             `Trying source chain ${sourceChain.chainId} and destination chain ${destinationChain.chainId} for potential rebalance`,
             {
               sourceChain: {

@@ -144,15 +144,6 @@ export function validateBroadcastRequestMiddleware(
   next: NextFunction
 ): void {
   try {
-    // Log what we're about to validate
-    console.log("Request body before validation:", {
-      body: req.body,
-      contentType: req.headers["content-type"],
-      method: req.method,
-      hasBody: !!req.body,
-      bodyKeys: req.body ? Object.keys(req.body) : [],
-    });
-
     // Ensure we're working with JSON content type
     if (!req.is("application/json")) {
       throw new Error("Content-Type must be application/json");
@@ -166,16 +157,6 @@ export function validateBroadcastRequestMiddleware(
 
     // Validate the request body
     const validatedBody = BroadcastRequestSchema.parse(requestBody);
-
-    // Log successful validation
-    console.log("Validation successful:", {
-      chainId: validatedBody.chainId,
-      hasCompact: !!validatedBody.compact,
-      hasSignatures: {
-        sponsor: !!validatedBody.sponsorSignature,
-        allocator: !!validatedBody.allocatorSignature,
-      },
-    });
 
     // Store validated body back in request
     req.body = validatedBody;
@@ -224,25 +205,8 @@ export type Context = z.infer<typeof ContextSchema>;
 export const validateBroadcastRequest = (data: unknown): BroadcastRequest => {
   const unvalidatedData = data as UnvalidatedBroadcastRequest;
 
-  console.log("Attempting to validate data:", {
-    hasData: !!data,
-    dataType: typeof data,
-    chainId: unvalidatedData?.chainId,
-    hasCompact: typeof unvalidatedData?.compact === "object",
-    hasMandateInCompact: typeof unvalidatedData?.compact?.mandate === "object",
-    rawData: data,
-  });
-
   try {
     const result = BroadcastRequestSchema.parse(data);
-    console.log("Validation successful:", {
-      chainId: result.chainId,
-      mandateChainId: result.compact?.mandate?.chainId,
-      signatures: {
-        sponsorLength: result.sponsorSignature?.length,
-        allocatorLength: result.allocatorSignature?.length,
-      },
-    });
     return result;
   } catch (error) {
     console.error("Validation failed:", {

@@ -39,7 +39,7 @@ export class WebSocketManager {
       // Set up connection monitoring
       const pingInterval = setInterval(() => {
         if (!(ws as WebSocket & { isAlive?: boolean }).isAlive) {
-          this.logger.info("Terminating inactive connection");
+          this.logger.debug("Terminating inactive connection");
           clearInterval(pingInterval);
           return ws.terminate();
         }
@@ -83,7 +83,7 @@ export class WebSocketManager {
       });
 
       ws.on("close", () => {
-        this.logger.info("Client disconnected");
+        this.logger.debug("Client disconnected");
         this.removeClient(ws);
         clearInterval(pingInterval);
       });

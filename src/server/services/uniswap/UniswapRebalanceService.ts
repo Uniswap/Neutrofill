@@ -117,7 +117,9 @@ export class UniswapRebalanceService {
         this.logger.info(`Approval transaction sent: ${approvalHash}`);
 
         // Wait for approval transaction to be confirmed
-        this.logger.info("Waiting for approval transaction to be confirmed...");
+        this.logger.debug(
+          "Waiting for approval transaction to be confirmed..."
+        );
         await this.publicClient.waitForTransactionReceipt({
           hash: approvalHash,
         });

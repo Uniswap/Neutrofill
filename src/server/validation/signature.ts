@@ -25,9 +25,14 @@ const CHAIN_PREFIXES = {
 // Extract allocator ID from compact.id
 const extractAllocatorId = (compactId: string): string => {
   const compactIdBigInt = BigInt(compactId);
+
   // Shift right by 160 bits to remove the input token part
+  const shiftedBigInt = compactIdBigInt >> 160n;
+
   // Then mask to get only the allocator ID bits (92 bits)
-  const allocatorIdBigInt = (compactIdBigInt >> 160n) & ((1n << 92n) - 1n);
+  const mask = (1n << 92n) - 1n;
+  const allocatorIdBigInt = shiftedBigInt & mask;
+
   return allocatorIdBigInt.toString();
 };
 
@@ -53,6 +58,13 @@ async function verifySignature(
       ? signature
       : `0x${signature}`;
 
+    logger.debug("Verifying signature with:", {
+      normalizedClaimHash,
+      normalizedPrefix,
+      normalizedSignature,
+      expectedSigner,
+    });
+
     // Convert hex strings to bytes and concatenate
     const prefixBytes = toBytes(normalizedPrefix);
     const claimHashBytes = toBytes(normalizedClaimHash);
@@ -66,6 +78,7 @@ async function verifySignature(
 
     // Get the digest
     const digest = keccak256(messageBytes);
+    logger.debug(`Generated digest: ${digest}`);
 
     // Convert compact signature to full signature
     const parsedCompactSig = parseCompactSignature(
@@ -73,12 +86,18 @@ async function verifySignature(
     );
     const fullSig = compactSignatureToSignature(parsedCompactSig);
     const serializedSig = serializeSignature(fullSig);
+    logger.debug(`Parsed signature: ${serializedSig}`);
 
     // Recover the signer address
     const recoveredAddress = await recoverAddress({
       hash: digest,
       signature: serializedSig,
     });
+    logger.debug(`Recovered address: ${recoveredAddress}`);
+    logger.debug(`Expected signer: ${expectedSigner}`);
+    logger.debug(
+      `Match: ${recoveredAddress.toLowerCase() === expectedSigner.toLowerCase()}`
+    );
 
     // Compare recovered address with expected signer
     return recoveredAddress.toLowerCase() === expectedSigner.toLowerCase();
@@ -130,7 +149,7 @@ export async function verifyBroadcastRequest(
   let error: string | undefined;
 
   try {
-    logger.info("Attempting to verify sponsor signature:", {
+    logger.debug("Attempting to verify sponsor signature:", {
       claimHash,
       sponsorSignature: request.sponsorSignature,
       sponsor: request.compact.sponsor,
@@ -150,7 +169,7 @@ export async function verifyBroadcastRequest(
       }
     } else {
       // Check registration status if no valid signature provided
-      logger.info(
+      logger.debug(
         "No sponsor signature provided, checking onchain registration..."
       );
       try {
@@ -161,9 +180,7 @@ export async function verifyBroadcastRequest(
           COMPACT_REGISTRATION_TYPEHASH as `0x${string}`
         );
 
-        logger.info(`${registrationStatus}`);
-
-        logger.info("Registration status check result:", {
+        logger.debug("Registration status check result:", {
           isActive: registrationStatus.isActive,
           expires: registrationStatus.expires?.toString(),
           compactExpires: request.compact.expires,
@@ -209,14 +226,14 @@ export async function verifyBroadcastRequest(
 
   // Extract allocator ID from compact.id
   const allocatorId = extractAllocatorId(request.compact.id);
-  logger.info("Extracted allocator ID:", allocatorId);
+  logger.debug("Extracted allocator ID:", allocatorId);
 
   // Find the matching allocator
   let allocatorAddress: string | undefined;
   for (const [name, allocator] of Object.entries(ALLOCATORS)) {
     if (allocator.id === allocatorId) {
       allocatorAddress = allocator.signingAddress;
-      logger.info(
+      logger.debug(
         `Found matching allocator: ${name} with address ${allocatorAddress}`
       );
       break;
