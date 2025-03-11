@@ -6,6 +6,7 @@ import {
   serializeSignature,
   toBytes,
 } from "viem";
+import { ALLOCATORS } from "../config/allocators.js";
 import type { SupportedChainId } from "../config/constants.js";
 import type { TheCompactService } from "../services/TheCompactService";
 import type { BroadcastRequest } from "../types/broadcast";
@@ -21,8 +22,14 @@ const CHAIN_PREFIXES = {
   130: "0x190150e2b173e1ac2eac4e4995e45458f4cd549c256c423a041bf17d0c0a4a736d2c", // unichain
 } as const;
 
-// Allocator address for signature verification
-const ALLOCATOR_ADDRESS = "0x51044301738Ba2a27bd9332510565eBE9F03546b";
+// Extract allocator ID from compact.id
+const extractAllocatorId = (compactId: string): string => {
+  const compactIdBigInt = BigInt(compactId);
+  // Shift right by 160 bits to remove the input token part
+  // Then mask to get only the allocator ID bits (92 bits)
+  const allocatorIdBigInt = (compactIdBigInt >> 160n) & ((1n << 92n) - 1n);
+  return allocatorIdBigInt.toString();
+};
 
 // The Compact typehash for registration checks
 const COMPACT_REGISTRATION_TYPEHASH =
@@ -200,11 +207,36 @@ export async function verifyBroadcastRequest(
     return { isValid: false, isOnchainRegistration, error };
   }
 
+  // Extract allocator ID from compact.id
+  const allocatorId = extractAllocatorId(request.compact.id);
+  logger.info("Extracted allocator ID:", allocatorId);
+
+  // Find the matching allocator
+  let allocatorAddress: string | undefined;
+  for (const [name, allocator] of Object.entries(ALLOCATORS)) {
+    if (allocator.id === allocatorId) {
+      allocatorAddress = allocator.signingAddress;
+      logger.info(
+        `Found matching allocator: ${name} with address ${allocatorAddress}`
+      );
+      break;
+    }
+  }
+
+  if (!allocatorAddress) {
+    logger.error(`No allocator found for ID: ${allocatorId}`);
+    return {
+      isValid: false,
+      isOnchainRegistration,
+      error: `No allocator found for ID: ${allocatorId}`,
+    };
+  }
+
   // Verify allocator signature
   const isAllocatorValid = await verifySignature(
     claimHash,
     request.allocatorSignature,
-    ALLOCATOR_ADDRESS,
+    allocatorAddress,
     chainPrefix
   );
   if (!isAllocatorValid) {
